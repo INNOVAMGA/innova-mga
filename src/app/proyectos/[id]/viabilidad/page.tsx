@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Sidebar } from "@/components/Sidebar";
 import { ProyectoNav } from "@/components/ProyectoNav";
 import {
@@ -79,10 +81,29 @@ const TIPO_STYLES = {
 const UNIDADES = ["Unidad", "Metro lineal", "Metro cuadrado", "Metro cúbico", "Kilómetro", "Tonelada", "Persona", "Familia", "Institución", "Vivienda", "Otro"];
 
 export default function ViabilidadPage() {
-  const proyectoId = "1";
+  const params = useParams();
+  const proyectoId = params?.id as string;
   const [data, setData] = useState<ViabilidadData>(INITIAL);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState("");
+
+  useEffect(() => {
+    if (!proyectoId) return;
+    async function cargar() {
+      const sb = createClient();
+      const { data: lin } = await sb
+        .from("lineamientos_estado")
+        .select("datos")
+        .eq("proyecto_id", proyectoId)
+        .eq("modulo", "viabilidad")
+        .maybeSingle();
+      if (lin?.datos && Object.keys(lin.datos).length > 0) {
+        setData(lin.datos as ViabilidadData);
+      }
+    }
+    cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoId]);
 
   const set = (field: keyof ViabilidadData, value: string) =>
     setData(prev => ({ ...prev, [field]: value }));
@@ -108,12 +129,25 @@ export default function ViabilidadPage() {
     }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      const sb = createClient();
+      const tieneData = Object.values(data).some(v =>
+        v !== "" && v !== null && v !== undefined &&
+        !(Array.isArray(v) && v.length === 0)
+      );
+      const estado = tieneData ? "parcial" : "pendiente";
+      await sb.from("lineamientos_estado").upsert(
+        { proyecto_id: proyectoId, modulo: "viabilidad", datos: data as unknown as Record<string, unknown>, estado },
+        { onConflict: "proyecto_id,modulo" }
+      );
       setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
-    }, 900);
+    } catch (e) {
+      console.error("Error guardando viabilidad:", e);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const isComplete = !!(

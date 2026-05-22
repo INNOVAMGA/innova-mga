@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { ProyectoNav } from "@/components/ProyectoNav";
@@ -9,6 +9,8 @@ import {
   SaveBar, AlertaNormativa, ValidationMsg,
 } from "@/components/FormComponents";
 
+
+import { createClient } from "@/lib/supabase/client";
 // ─── tipos ────────────────────────────────────────────────────────────────────
 type FuenteFinanciacion =
   | "SGR — Sistema General de Regalías"
@@ -267,6 +269,25 @@ export default function PresupuestoPage() {
   const [data, setData] = useState<PresupuestoData>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState("");
+
+  // Cargar datos guardados de Supabase
+  useEffect(() => {
+    if (!proyectoId) return;
+    async function cargar() {
+      const sb = createClient();
+      const { data: lin } = await sb
+        .from("lineamientos_estado")
+        .select("datos")
+        .eq("proyecto_id", proyectoId)
+        .eq("modulo", "presupuesto")
+        .maybeSingle();
+      if (lin?.datos && Object.keys(lin.datos).length > 0) {
+        setData(lin.datos as typeof data);
+      }
+    }
+    cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoId]);
   const [tabActiva, setTabActiva] = useState<"componentes" | "resumen" | "fuentes">("componentes");
 
   // ── computed ──────────────────────────────────────────────────────────────
@@ -345,9 +366,24 @@ export default function PresupuestoPage() {
 
   async function handleSave() {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 900));
-    setSaving(false);
-    setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+    try {
+      const sb = createClient();
+      // Calcular estado basado en si hay datos relevantes
+      const tieneData = Object.values(data).some(v =>
+        v !== "" && v !== null && v !== undefined &&
+        !(Array.isArray(v) && v.length === 0)
+      );
+      const estado = tieneData ? "parcial" : "pendiente";
+      await sb.from("lineamientos_estado").upsert(
+        { proyecto_id: proyectoId, modulo: "presupuesto", datos: data as unknown as Record<string, unknown>, estado },
+        { onConflict: "proyecto_id,modulo" }
+      );
+      setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+    } catch (e) {
+      console.error("Error guardando presupuesto:", e);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

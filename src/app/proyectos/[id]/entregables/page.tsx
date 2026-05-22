@@ -1,42 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { ProyectoNav } from "@/components/ProyectoNav";
+import { createClient } from "@/lib/supabase/client";
 
 /* ──────────────────────────────────────────────────────────────
-   DATOS DEMO del proyecto (luego se reemplaza con Supabase)
+   Variable mutable que los generadores usan en tiempo de ejecución
+   (se actualiza en el componente tras cargar datos de Supabase)
 ────────────────────────────────────────────────────────────── */
-const PROYECTO = {
-  id: "1",
-  nombre: "Construcción de placa polideportiva municipio de San Pedro",
-  objetivo: "Contribuir al mejoramiento de la calidad de vida de la población mediante la construcción de infraestructura deportiva y recreativa.",
-  sector: "Deporte y Recreación",
-  departamento: "Antioquia",
-  municipio: "San Pedro",
-  localizacion: "Vereda El Centro, San Pedro, Antioquia",
-  presupuesto: "$850.000.000",
-  poblacion: "3.500",
-  producto: "Placa deportiva construida y dotada",
-  indicador: "Número de placas polideportivas construidas",
-  meta: "1",
+// eslint-disable-next-line prefer-const
+let PROYECTO = {
+  id: "",
+  nombre: "—",
+  objetivo: "—",
+  sector: "—",
+  departamento: "—",
+  municipio: "—",
+  localizacion: "—",
+  presupuesto: "$0",
+  poblacion: "0",
+  producto: "—",
+  indicador: "—",
+  meta: "0",
   unidad: "Unidad",
-  programa: "Infraestructura deportiva y recreativa",
-  bpin: "2024-03-012345-000",
+  programa: "—",
+  bpin: "—",
   estadoFormulacion: "En formulación",
-  avance: 65,
-  entidadEjecutora: "Alcaldía Municipal de San Pedro",
-  nit: "890.982.177-7",
-  representanteLegal: "Juan Carlos Gómez Restrepo",
+  avance: 0,
+  entidadEjecutora: "—",
+  nit: "—",
+  representanteLegal: "—",
   fecha: new Date().toLocaleDateString("es-CO", { day: "2-digit", month: "long", year: "numeric" }),
   fuentes: [
-    { nombre: "SGR – Fondo Común", monto: "680.000.000", pct: "80%" },
-    { nombre: "Municipio – Recursos Propios", monto: "170.000.000", pct: "20%" },
+    { nombre: "SGR – Fondo Común", monto: "0", pct: "100%" },
   ],
   componentes: [
-    { codigo: "1", nombre: "OBRAS CIVILES", total: "680.000.000" },
-    { codigo: "2", nombre: "DOTACIÓN Y EQUIPAMIENTO", total: "85.000.000" },
-    { codigo: "3", nombre: "GESTIÓN DEL PROYECTO", total: "85.000.000" },
+    { codigo: "1", nombre: "OBRAS CIVILES", total: "0" },
   ],
 };
 
@@ -676,9 +677,54 @@ async function generarExpedienteZIP() {
    COMPONENTE PRINCIPAL
 ────────────────────────────────────────────────────────────── */
 export default function EntregablesPage() {
-  const proyectoId = "1";
+  const params = useParams();
+  const proyectoId = params?.id as string;
   const [estados, setEstados] = useState<Record<string, EstadoDoc>>({});
   const [generandoZip, setGenerandoZip] = useState(false);
+  const [cargando, setCargando] = useState(true);
+
+  useEffect(() => {
+    if (!proyectoId) return;
+    async function cargar() {
+      try {
+        const sb = createClient();
+        const { data: proy } = await sb
+          .from("proyectos")
+          .select("*")
+          .eq("id", proyectoId)
+          .single();
+        if (proy) {
+          PROYECTO.id = proy.id;
+          PROYECTO.nombre = proy.nombre ?? "—";
+          PROYECTO.objetivo = proy.objetivo ?? "—";
+          PROYECTO.sector = proy.sector ?? "—";
+          PROYECTO.departamento = proy.departamento ?? "—";
+          PROYECTO.municipio = proy.municipio ?? "—";
+          PROYECTO.localizacion = proy.localizacion_detalle ?? "—";
+          PROYECTO.presupuesto = proy.presupuesto_total
+            ? `$${proy.presupuesto_total.toLocaleString("es-CO")}`
+            : "$0";
+          PROYECTO.poblacion = proy.poblacion_beneficiada?.toString() ?? "0";
+          PROYECTO.producto = proy.nombre_producto ?? "—";
+          PROYECTO.indicador = proy.nombre_indicador ?? "—";
+          PROYECTO.meta = proy.meta_producto?.toString() ?? "0";
+          PROYECTO.unidad = proy.unidad_medida ?? "Unidad";
+          PROYECTO.programa = proy.programa ?? "—";
+          PROYECTO.bpin = proy.bpin ?? "—";
+          PROYECTO.entidadEjecutora = proy.entidad_ejecutora ?? "—";
+          PROYECTO.nit = proy.nit_ejecutora ?? "—";
+          PROYECTO.representanteLegal = proy.representante_legal ?? "—";
+          PROYECTO.avance = proy.avance ?? 0;
+        }
+      } catch (e) {
+        console.error("Error cargando proyecto entregables:", e);
+      } finally {
+        setCargando(false);
+      }
+    }
+    cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoId]);
 
   const setEst = (key: string, est: EstadoDoc) =>
     setEstados(prev => ({ ...prev, [key]: est }));
@@ -723,6 +769,17 @@ export default function EntregablesPage() {
   const categorias = [...new Set(ENTREGABLES.map(e => e.categoria))];
 
   const completados = ENTREGABLES.filter(e => getEstado(e) === "listo").length;
+
+  if (cargando) {
+    return (
+      <div className="bg-innova min-h-screen flex flex-col">
+        <Sidebar activo="proyectos" />
+        <div className="content-area flex-1 flex items-center justify-center">
+          <div style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Cargando proyecto…</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-innova min-h-screen flex flex-col">

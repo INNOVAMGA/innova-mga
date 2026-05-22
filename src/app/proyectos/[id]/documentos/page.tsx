@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { ProyectoNav } from "@/components/ProyectoNav";
@@ -8,6 +8,8 @@ import {
   SectionTitle, FormField, SaveBar, AlertaNormativa, ValidationMsg,
 } from "@/components/FormComponents";
 
+
+import { createClient } from "@/lib/supabase/client";
 // ─── tipos ────────────────────────────────────────────────────────────────────
 type EstadoDoc = "Adjunto" | "Pendiente" | "No aplica" | "En trámite";
 
@@ -76,6 +78,24 @@ export default function DocumentosPage() {
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState("");
 
+  // Cargar datos guardados de Supabase
+  useEffect(() => {
+    if (!proyectoId) return;
+    async function cargar() {
+      const sb = createClient();
+      const { data: lin } = await sb
+        .from("lineamientos_estado")
+        .select("datos")
+        .eq("proyecto_id", proyectoId)
+        .eq("modulo", "documentos")
+        .maybeSingle();
+      if (lin?.datos && Array.isArray(lin.datos)) {
+        setDocs(lin.datos as RequisitoDoc[]);
+      }
+    }
+    cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoId]);
   function updDoc(id: string, campo: keyof RequisitoDoc, val: string) {
     setDocs(prev => prev.map(d => d.id === id ? { ...d, [campo]: val } : d));
   }
@@ -94,9 +114,21 @@ export default function DocumentosPage() {
 
   async function handleSave() {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 900));
-    setSaving(false);
-    setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+    try {
+      const sb = createClient();
+      // Calcular estado basado en si hay datos relevantes
+      const adjuntos = docs.filter(d => d.estado === "Adjunto").length;
+      const estado = adjuntos > 0 ? "parcial" : "pendiente";
+      await sb.from("lineamientos_estado").upsert(
+        { proyecto_id: proyectoId, modulo: "documentos", datos: docs as unknown as Record<string, unknown>, estado },
+        { onConflict: "proyecto_id,modulo" }
+      );
+      setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+    } catch (e) {
+      console.error("Error guardando documentos:", e);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

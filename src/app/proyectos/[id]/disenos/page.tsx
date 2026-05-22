@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { ProyectoNav } from "@/components/ProyectoNav";
@@ -9,6 +9,8 @@ import {
   SaveBar, AlertaNormativa, ValidationMsg,
 } from "@/components/FormComponents";
 
+
+import { createClient } from "@/lib/supabase/client";
 // ─── tipos ────────────────────────────────────────────────────────────────────
 type TipoDiseno = "Estudio de prefactibilidad" | "Estudio de factibilidad" | "Diseño definitivo / Planos" | "Estudio técnico de alternativas" | "Levantamiento topográfico" | "Estudio de suelos" | "Estudio hidrológico / hidráulico" | "Estudio ambiental" | "Otro";
 type EstadoDoc = "Contratado" | "En elaboración" | "Entregado" | "Aprobado" | "No aplica" | "";
@@ -94,6 +96,24 @@ export default function DisenosPage() {
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState("");
 
+  // Cargar datos guardados de Supabase
+  useEffect(() => {
+    if (!proyectoId) return;
+    async function cargar() {
+      const sb = createClient();
+      const { data: lin } = await sb
+        .from("lineamientos_estado")
+        .select("datos")
+        .eq("proyecto_id", proyectoId)
+        .eq("modulo", "disenos")
+        .maybeSingle();
+      if (lin?.datos && Object.keys(lin.datos).length > 0) {
+        setData(lin.datos as typeof data);
+      }
+    }
+    cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoId]);
   function upd<K extends keyof DisenosData>(key: K, val: DisenosData[K]) {
     setData(prev => ({ ...prev, [key]: val }));
   }
@@ -119,9 +139,24 @@ export default function DisenosPage() {
 
   async function handleSave() {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 900));
-    setSaving(false);
-    setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+    try {
+      const sb = createClient();
+      // Calcular estado basado en si hay datos relevantes
+      const tieneData = Object.values(data).some(v =>
+        v !== "" && v !== null && v !== undefined &&
+        !(Array.isArray(v) && v.length === 0)
+      );
+      const estado = tieneData ? "parcial" : "pendiente";
+      await sb.from("lineamientos_estado").upsert(
+        { proyecto_id: proyectoId, modulo: "disenos", datos: data as unknown as Record<string, unknown>, estado },
+        { onConflict: "proyecto_id,modulo" }
+      );
+      setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+    } catch (e) {
+      console.error("Error guardando disenos:", e);
+    } finally {
+      setSaving(false);
+    }
   }
 
   const altSeleccionada = data.alternativas.find(a => a.seleccionada);

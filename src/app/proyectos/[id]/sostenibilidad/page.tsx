@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
 import { Sidebar } from "@/components/Sidebar";
 import { ProyectoNav } from "@/components/ProyectoNav";
 import {
@@ -139,11 +141,30 @@ const fmt = (v: string) => {
 };
 
 export default function SostenibilidadPage() {
-  const proyectoId = "1";
+  const params = useParams();
+  const proyectoId = params?.id as string;
   const [data, setData] = useState<SostenibilidadData>(INIT_DATA);
   const [tab, setTab] = useState<TabKey>("institucional");
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState("");
+
+  useEffect(() => {
+    if (!proyectoId) return;
+    async function cargar() {
+      const sb = createClient();
+      const { data: lin } = await sb
+        .from("lineamientos_estado")
+        .select("datos")
+        .eq("proyecto_id", proyectoId)
+        .eq("modulo", "sostenibilidad")
+        .maybeSingle();
+      if (lin?.datos && Object.keys(lin.datos).length > 0) {
+        setData(lin.datos as SostenibilidadData);
+      }
+    }
+    cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoId]);
 
   const set = <K extends keyof SostenibilidadData>(k: K, v: SostenibilidadData[K]) =>
     setData(prev => ({ ...prev, [k]: v }));
@@ -166,12 +187,25 @@ export default function SostenibilidadPage() {
   ]);
   const removeRiesgo = (id: number) => set("riesgos", data.riesgos.filter(r => r.id !== id));
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
+    try {
+      const sb = createClient();
+      const tieneData = Object.values(data).some(v =>
+        v !== "" && v !== null && v !== undefined &&
+        !(Array.isArray(v) && v.length === 0)
+      );
+      const estado = tieneData ? "parcial" : "pendiente";
+      await sb.from("lineamientos_estado").upsert(
+        { proyecto_id: proyectoId, modulo: "sostenibilidad", datos: data as unknown as Record<string, unknown>, estado },
+        { onConflict: "proyecto_id,modulo" }
+      );
       setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
-    }, 900);
+    } catch (e) {
+      console.error("Error guardando sostenibilidad:", e);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const scoreTab = (t: TabKey): "completo" | "parcial" | "vacio" => {

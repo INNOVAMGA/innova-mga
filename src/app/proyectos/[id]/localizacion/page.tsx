@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { ProyectoNav } from "@/components/ProyectoNav";
@@ -9,6 +9,8 @@ import {
   SaveBar, AlertaNormativa, ValidationMsg,
 } from "@/components/FormComponents";
 
+
+import { createClient } from "@/lib/supabase/client";
 // ─── tipos ───────────────────────────────────────────────────────────────────
 type ZonaTerritorial = "Urbana" | "Rural" | "Periurbana" | "Centro poblado" | "";
 type ClimaZona = "Cálido" | "Templado" | "Frío" | "Páramo" | "Muy frío" | "";
@@ -179,6 +181,24 @@ export default function LocalizacionPage() {
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState("");
 
+  // Cargar datos guardados de Supabase
+  useEffect(() => {
+    if (!proyectoId) return;
+    async function cargar() {
+      const sb = createClient();
+      const { data: lin } = await sb
+        .from("lineamientos_estado")
+        .select("datos")
+        .eq("proyecto_id", proyectoId)
+        .eq("modulo", "localizacion")
+        .maybeSingle();
+      if (lin?.datos && Object.keys(lin.datos).length > 0) {
+        setData(lin.datos as typeof data);
+      }
+    }
+    cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoId]);
   function upd<K extends keyof LocalizacionData>(key: K, val: LocalizacionData[K]) {
     setData(prev => ({ ...prev, [key]: val }));
   }
@@ -202,9 +222,24 @@ export default function LocalizacionPage() {
 
   async function handleSave() {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 900));
-    setSaving(false);
-    setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+    try {
+      const sb = createClient();
+      // Calcular estado basado en si hay datos relevantes
+      const tieneData = Object.values(data).some(v =>
+        v !== "" && v !== null && v !== undefined &&
+        !(Array.isArray(v) && v.length === 0)
+      );
+      const estado = tieneData ? "parcial" : "pendiente";
+      await sb.from("lineamientos_estado").upsert(
+        { proyecto_id: proyectoId, modulo: "localizacion", datos: data as unknown as Record<string, unknown>, estado },
+        { onConflict: "proyecto_id,modulo" }
+      );
+      setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+    } catch (e) {
+      console.error("Error guardando localizacion:", e);
+    } finally {
+      setSaving(false);
+    }
   }
 
   const coordVal = validarCoordenada(data.coordenadaLatitud, data.coordenadaLongitud);

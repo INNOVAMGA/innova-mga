@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { Sidebar } from "@/components/Sidebar";
@@ -10,6 +11,8 @@ import {
   SaveBar, AlertaNormativa, ValidationMsg,
 } from "@/components/FormComponents";
 
+
+import { createClient } from "@/lib/supabase/client";
 // ─── Tipos ────────────────────────────────────────────────
 type SeccionKey =
   | "diagnostico" | "justificacion" | "antecedentes" | "alcances"
@@ -97,10 +100,30 @@ function initialState() {
 
 // ─── Componente principal ──────────────────────────────────
 export default function EnfoquePage({ params }: { params: { id: string } }) {
+  const proyectoId = params.id;
   const [seccion, setSeccion] = useState<SeccionKey>("diagnostico");
   const [data, setData] = useState(initialState());
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState("");
+
+  // Cargar datos guardados de Supabase
+  useEffect(() => {
+    if (!proyectoId) return;
+    async function cargar() {
+      const sb = createClient();
+      const { data: lin } = await sb
+        .from("lineamientos_estado")
+        .select("datos")
+        .eq("proyecto_id", proyectoId)
+        .eq("modulo", "enfoque")
+        .maybeSingle();
+      if (lin?.datos && Object.keys(lin.datos).length > 0) {
+        setData(lin.datos as typeof data);
+      }
+    }
+    cargar();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proyectoId]);
   const [completadas, setCompletadas] = useState<Set<SeccionKey>>(new Set());
 
   function set(field: string, value: unknown) {
@@ -109,11 +132,24 @@ export default function EnfoquePage({ params }: { params: { id: string } }) {
 
   async function handleSave() {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 700));
-    setCompletadas(prev => new Set([...prev, seccion]));
-    const now = new Date();
-    setLastSaved(`${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`);
-    setSaving(false);
+    try {
+      const sb = createClient();
+      const tieneData = Object.values(data).some(v =>
+        v !== "" && v !== null && v !== undefined &&
+        !(Array.isArray(v) && v.length === 0)
+      );
+      const estado = tieneData ? "parcial" : "pendiente";
+      await sb.from("lineamientos_estado").upsert(
+        { proyecto_id: proyectoId, modulo: "enfoque", datos: data as unknown as Record<string, unknown>, estado },
+        { onConflict: "proyecto_id,modulo" }
+      );
+      setCompletadas(prev => new Set([...prev, seccion]));
+      setLastSaved(new Date().toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" }));
+    } catch (e) {
+      console.error("Error guardando enfoque:", e);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function addItem(field: string, arr: CausaEfecto[]) {
