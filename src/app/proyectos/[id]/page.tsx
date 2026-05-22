@@ -25,13 +25,15 @@ const PROYECTO_DEMO = {
 type Vista = "ficha" | "lineamientos" | "entregables";
 
 const LINEAMIENTOS = [
-  { key: "enfoque",        label: "Enfoque",           icon: "🎯", estado: "completado", href: "/proyectos/1/enfoque" },
-  { key: "localizacion",   label: "Localización",      icon: "📍", estado: "parcial",    href: "/proyectos/1/localizacion" },
-  { key: "disenos",        label: "Diseños Técnicos",  icon: "📐", estado: "pendiente",  href: "/proyectos/1/disenos" },
-  { key: "presupuesto",    label: "Presupuesto",        icon: "💰", estado: "completado", href: "/proyectos/1/presupuesto" },
-  { key: "pdn",            label: "PDN / PDD / PDM",   icon: "📋", estado: "completado", href: "/proyectos/1/pdn" },
-  { key: "documentos",     label: "Documentos",         icon: "📁", estado: "parcial",    href: "/proyectos/1/documentos" },
-  { key: "normativas",     label: "Normativas Técn.",   icon: "⚖️", estado: "pendiente",  href: "/proyectos/1/normativas" },
+  { key: "enfoque",        label: "Enfoque",            icon: "🎯", estado: "completado", href: "/proyectos/1/enfoque" },
+  { key: "localizacion",   label: "Localización",       icon: "📍", estado: "parcial",    href: "/proyectos/1/localizacion" },
+  { key: "disenos",        label: "Diseños Técnicos",   icon: "📐", estado: "pendiente",  href: "/proyectos/1/disenos" },
+  { key: "presupuesto",    label: "Presupuesto",         icon: "💰", estado: "completado", href: "/proyectos/1/presupuesto" },
+  { key: "pdn",            label: "PDN / PDD / PDM",    icon: "📋", estado: "completado", href: "/proyectos/1/pdn" },
+  { key: "documentos",     label: "Documentos",          icon: "📁", estado: "parcial",    href: "/proyectos/1/documentos" },
+  { key: "normativas",     label: "Normativas Técn.",    icon: "⚖️", estado: "pendiente",  href: "/proyectos/1/normativas" },
+  { key: "viabilidad",     label: "Viabilidad Sectorial",icon: "✅", estado: "pendiente",  href: "/proyectos/1/viabilidad" },
+  { key: "sostenibilidad", label: "Sostenibilidad",      icon: "♻️", estado: "pendiente",  href: "/proyectos/1/sostenibilidad" },
 ];
 
 const ENTREGABLES = [
@@ -298,95 +300,53 @@ export default function ProyectoPage() {
         )}
 
         {/* ─────────────────────────────────────
-            VISTA 3: ENTREGABLES
+            VISTA 3: ENTREGABLES → redirige a página completa
         ───────────────────────────────────── */}
         {vista === "entregables" && (
-          <div style={{ maxWidth: 480 }}>
+          <div style={{ maxWidth: 560 }}>
             <div style={{ marginBottom: "1.5rem" }}>
               <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.4rem" }}>
-                Entregables del Proyecto
+                Generador de Entregables
               </h2>
               <p style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                Descargue los documentos generados automáticamente por la plataforma.
+                Genere y descargue los documentos oficiales del proyecto en formato DOCX, PDF y XLSX.
               </p>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginBottom: "1rem" }}>
-              {ENTREGABLES.map((item) => {
-                const sty = ESTADO_STYLES[item.estado as keyof typeof ESTADO_STYLES];
-                const isDisabled = item.estado === "pendiente";
-                return (
-                  <button
-                    key={item.key}
-                    disabled={isDisabled}
-                    onClick={() => !isDisabled && alert(`Generando: ${item.label}…`)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "0.9rem 1.1rem",
-                      border: `1px solid ${sty.border}`,
-                      borderRadius: "var(--radius-sm)",
-                      background: sty.bg,
-                      color: isDisabled ? "var(--text-muted)" : "var(--text-primary)",
-                      cursor: isDisabled ? "not-allowed" : "pointer",
-                      transition: "var(--transition)",
-                      width: "100%",
-                      textAlign: "left",
-                      gap: "0.75rem",
-                    }}
-                    onMouseEnter={e => !isDisabled && (e.currentTarget.style.transform = "translateX(3px)")}
-                    onMouseLeave={e => (e.currentTarget.style.transform = "translateX(0)")}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                      <span style={{ fontSize: "1.1rem" }}>{item.icon}</span>
-                      <div>
-                        <p style={{ fontSize: "0.8rem", fontWeight: 600 }}>{item.label}</p>
-                        <p style={{ fontSize: "0.62rem", color: sty.color, marginTop: "0.1rem", letterSpacing: "0.05em" }}>
-                          {sty.label}
-                        </p>
-                      </div>
-                    </div>
-                    {!isDisabled && (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={sty.color} strokeWidth="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="7 10 12 15 17 10"/>
-                        <line x1="12" y1="15" x2="12" y2="3"/>
-                      </svg>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+            {/* Preview de documentos */}
+            {[
+              { icon: "📋", label: "Ficha Técnica P-001",          fmt: "PDF / DOCX" },
+              { icon: "📄", label: "Documento Técnico Descriptivo", fmt: "DOCX" },
+              { icon: "💰", label: "Resumen Presupuestal",          fmt: "PDF / XLSX" },
+              { icon: "♻️", label: "Anexo 07 — Sostenibilidad",     fmt: "DOCX / PDF" },
+              { icon: "✅", label: "Concepto de Viabilidad",        fmt: "PDF" },
+              { icon: "☑️", label: "Lista de Chequeo SGR",          fmt: "PDF" },
+            ].map(item => (
+              <div key={item.label} style={{
+                display: "flex", alignItems: "center", gap: "0.75rem",
+                padding: "0.7rem 0.9rem", marginBottom: "0.4rem",
+                border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
+                background: "rgba(255,255,255,0.02)",
+              }}>
+                <span style={{ fontSize: "1rem" }}>{item.icon}</span>
+                <span style={{ flex: 1, fontSize: "0.77rem", color: "var(--text-primary)", fontWeight: 500 }}>{item.label}</span>
+                <span style={{ fontSize: "0.63rem", color: "var(--text-muted)" }}>{item.fmt}</span>
+              </div>
+            ))}
 
-            <button
-              onClick={() => alert("Generando expediente completo ZIP…")}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.6rem",
-                width: "100%",
-                padding: "0.9rem",
-                background: "rgba(59,130,246,0.08)",
-                border: "1px dashed rgba(59,130,246,0.4)",
-                borderRadius: "var(--radius-sm)",
-                color: "#60A5FA",
-                fontSize: "0.78rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                transition: "var(--transition)",
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = "rgba(59,130,246,0.14)")}
-              onMouseLeave={e => (e.currentTarget.style.background = "rgba(59,130,246,0.08)")}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                <polyline points="7 10 12 15 17 10"/>
-                <line x1="12" y1="15" x2="12" y2="3"/>
-              </svg>
-              Descargar Expediente Completo (.ZIP)
-            </button>
+            <Link href={`/proyectos/${PROYECTO_DEMO.id}/entregables`} style={{ textDecoration: "none" }}>
+              <button className="btn-primary" style={{
+                display: "flex", alignItems: "center", justifyContent: "center",
+                gap: "0.5rem", width: "100%", padding: "0.85rem", marginTop: "1rem", fontSize: "0.82rem",
+              }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Abrir Generador de Documentos
+              </button>
+            </Link>
           </div>
         )}
 

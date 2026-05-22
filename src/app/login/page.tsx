@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogoHeader } from "@/components/Logo";
+import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -15,10 +16,27 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    if (email && password) {
-      setTimeout(() => router.push("/dashboard"), 700);
-    } else {
-      setError("Ingresa tu correo y contraseña.");
+
+    try {
+      const sb = createClient();
+      const { error: authError } = await sb.auth.signInWithPassword({ email, password });
+
+      if (authError) {
+        if (authError.message.includes("Invalid login credentials")) {
+          setError("Correo o contraseña incorrectos. Verifique sus datos.");
+        } else if (authError.message.includes("Email not confirmed")) {
+          setError("Debe confirmar su correo electrónico antes de ingresar.");
+        } else {
+          setError(authError.message);
+        }
+        setLoading(false);
+        return;
+      }
+
+      router.push("/dashboard");
+      router.refresh();
+    } catch {
+      setError("Error de conexión. Intente nuevamente.");
       setLoading(false);
     }
   }
@@ -64,6 +82,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
+                autoComplete="email"
               />
             </div>
 
@@ -72,9 +91,20 @@ export default function LoginPage() {
                 <label style={{ fontSize: "0.7rem", fontWeight: 600, color: "var(--text-secondary)" }}>
                   Contraseña
                 </label>
-                <a href="#" style={{ fontSize: "0.67rem", color: "var(--primary)", textDecoration: "none" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!email) { setError("Ingrese su correo para recuperar la contraseña."); return; }
+                    const sb = createClient();
+                    await sb.auth.resetPasswordForEmail(email, {
+                      redirectTo: `${window.location.origin}/auth/callback?next=/configuracion/password`,
+                    });
+                    alert(`Se envió un enlace de recuperación a ${email}`);
+                  }}
+                  style={{ fontSize: "0.67rem", color: "var(--primary)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                >
                   ¿Olvidaste tu contraseña?
-                </a>
+                </button>
               </div>
               <input
                 className="input-innova"
@@ -83,6 +113,7 @@ export default function LoginPage() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
+                autoComplete="current-password"
               />
             </div>
 
@@ -100,26 +131,14 @@ export default function LoginPage() {
               disabled={loading}
               className={loading ? "" : "btn-primary"}
               style={loading ? {
-                marginTop: "0.5rem",
-                padding: "0.75rem",
+                marginTop: "0.5rem", padding: "0.75rem",
                 background: "rgba(59,130,246,0.3)",
                 border: "1px solid rgba(59,130,246,0.25)",
                 borderRadius: "var(--radius-sm)",
-                color: "rgba(255,255,255,0.5)",
-                fontSize: "0.82rem",
-                fontWeight: 600,
-                cursor: "not-allowed",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "0.5rem",
-                width: "100%",
-              } : {
-                marginTop: "0.5rem",
-                width: "100%",
-                padding: "0.75rem",
-                justifyContent: "center",
-              }}
+                color: "rgba(255,255,255,0.5)", fontSize: "0.82rem", fontWeight: 600,
+                cursor: "not-allowed", display: "flex", alignItems: "center",
+                justifyContent: "center", gap: "0.5rem", width: "100%",
+              } : { marginTop: "0.5rem", width: "100%", padding: "0.75rem", justifyContent: "center" }}
             >
               {loading ? (
                 <>
@@ -138,10 +157,8 @@ export default function LoginPage() {
           </form>
 
           <div style={{
-            marginTop: "1.5rem",
-            paddingTop: "1.25rem",
-            borderTop: "1px solid var(--border)",
-            textAlign: "center",
+            marginTop: "1.5rem", paddingTop: "1.25rem",
+            borderTop: "1px solid var(--border)", textAlign: "center",
           }}>
             <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
               ¿No tienes cuenta?{" "}

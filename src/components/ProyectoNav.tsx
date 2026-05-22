@@ -3,14 +3,16 @@
 import Link from "next/link";
 
 const SECCIONES = [
-  { href: "enfoque",      label: "Enfoque",          icon: "🎯" },
-  { href: "localizacion", label: "Localización",      icon: "📍" },
-  { href: "disenos",      label: "Diseños Técnicos",  icon: "📐" },
-  { href: "presupuesto",  label: "Presupuesto",        icon: "💰" },
-  { href: "pdn",          label: "PDN / PDD / PDM",   icon: "📋" },
-  { href: "documentos",   label: "Documentos",         icon: "📁" },
-  { href: "normativas",   label: "Normativas",         icon: "⚖️" },
-  { href: "entregables",  label: "Entregables",        icon: "📦" },
+  { href: "enfoque",       label: "Enfoque",           icon: "🎯" },
+  { href: "localizacion",  label: "Localización",       icon: "📍" },
+  { href: "disenos",       label: "Diseños Técnicos",   icon: "📐" },
+  { href: "presupuesto",   label: "Presupuesto",         icon: "💰" },
+  { href: "pdn",           label: "PDN / PDD / PDM",    icon: "📋" },
+  { href: "documentos",    label: "Documentos",          icon: "📁" },
+  { href: "normativas",    label: "Normativas",          icon: "⚖️" },
+  { href: "viabilidad",    label: "Viabilidad",          icon: "✅" },
+  { href: "sostenibilidad",label: "Sostenibilidad",      icon: "♻️" },
+  { href: "entregables",   label: "Entregables",         icon: "📦" },
 ];
 
 export function ProyectoNav({ proyectoId, activo }: { proyectoId: string; activo: string }) {
