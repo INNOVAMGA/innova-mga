@@ -3,7 +3,7 @@
    Funciones reutilizables para interactuar con la base de datos
 ────────────────────────────────────────────────────────────── */
 import { createClient } from "./client";
-import type { ProyectoInsert, ProyectoUpdate } from "./types";
+import type { ProyectoInsert, ProyectoUpdate, LineamientoEstadoInsert } from "./types";
 
 /* ─── PROYECTOS ─────────────────────────────────────────────── */
 
@@ -78,12 +78,10 @@ export async function guardarLineamiento(
   estado: "pendiente" | "parcial" | "completado" = "parcial"
 ) {
   const sb = createClient();
+  const payload: LineamientoEstadoInsert = { proyecto_id: proyectoId, modulo, datos, estado };
   const { data, error } = await sb
     .from("lineamientos_estado")
-    .upsert(
-      { proyecto_id: proyectoId, modulo, datos, estado },
-      { onConflict: "proyecto_id,modulo" }
-    )
+    .upsert(payload, { onConflict: "proyecto_id,modulo" })
     .select()
     .single();
   if (error) throw error;

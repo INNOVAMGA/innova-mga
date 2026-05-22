@@ -1,60 +1,129 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Sidebar } from "@/components/Sidebar";
-
-const PROYECTO_DEMO = {
-  id: "1",
-  nombre: "Construcción de placa polideportiva municipio de San Pedro",
-  objetivo: "Contribuir al mejoramiento de la calidad de vida de la población mediante la construcción de infraestructura deportiva y recreativa.",
-  poblacion: "3.500",
-  presupuesto: "$850.000.000",
-  localizacion: "Vereda El Centro, San Pedro, Antioquia",
-  programa: "Infraestructura deportiva y recreativa",
-  sector: "Deporte y Recreación",
-  producto: "Placa deportiva construida y dotada",
-  indicador: "Número de placas polideportivas construidas",
-  medidoA: "Acta de entrega y recibo a satisfacción",
-  meta: "1",
-  departamento: "Antioquia",
-  municipio: "San Pedro",
-  avance: 65,
-};
+import { createClient } from "@/lib/supabase/client";
+import type { Proyecto, LineamientoEstado } from "@/lib/supabase/types";
 
 type Vista = "ficha" | "lineamientos" | "entregables";
 
-const LINEAMIENTOS = [
-  { key: "enfoque",        label: "Enfoque",            icon: "🎯", estado: "completado", href: "/proyectos/1/enfoque" },
-  { key: "localizacion",   label: "Localización",       icon: "📍", estado: "parcial",    href: "/proyectos/1/localizacion" },
-  { key: "disenos",        label: "Diseños Técnicos",   icon: "📐", estado: "pendiente",  href: "/proyectos/1/disenos" },
-  { key: "presupuesto",    label: "Presupuesto",         icon: "💰", estado: "completado", href: "/proyectos/1/presupuesto" },
-  { key: "pdn",            label: "PDN / PDD / PDM",    icon: "📋", estado: "completado", href: "/proyectos/1/pdn" },
-  { key: "documentos",     label: "Documentos",          icon: "📁", estado: "parcial",    href: "/proyectos/1/documentos" },
-  { key: "normativas",     label: "Normativas Técn.",    icon: "⚖️", estado: "pendiente",  href: "/proyectos/1/normativas" },
-  { key: "viabilidad",     label: "Viabilidad Sectorial",icon: "✅", estado: "pendiente",  href: "/proyectos/1/viabilidad" },
-  { key: "sostenibilidad", label: "Sostenibilidad",      icon: "♻️", estado: "pendiente",  href: "/proyectos/1/sostenibilidad" },
-];
-
-const ENTREGABLES = [
-  { key: "doc_tecnico",    label: "Doc. Técnico",          icon: "📄", estado: "completado" },
-  { key: "certificados",   label: "Certificados",           icon: "🏆", estado: "parcial" },
-  { key: "viabilidad",     label: "Viabilidad Sectorial",   icon: "✅", estado: "completado" },
-  { key: "sostenibilidad", label: "Sostenibilidad (An. 07)", icon: "♻️", estado: "pendiente" },
-  { key: "checklist",      label: "Lista de chequeo",       icon: "📝", estado: "parcial" },
+const MODULOS_CONFIG = [
+  { key: "enfoque",        label: "Enfoque",             icon: "🎯" },
+  { key: "localizacion",   label: "Localización",        icon: "📍" },
+  { key: "disenos",        label: "Diseños Técnicos",    icon: "📐" },
+  { key: "presupuesto",    label: "Presupuesto",         icon: "💰" },
+  { key: "pdn",            label: "PDN / PDD / PDM",    icon: "📋" },
+  { key: "documentos",     label: "Documentos",          icon: "📁" },
+  { key: "normativas",     label: "Normativas Técn.",    icon: "⚖️" },
+  { key: "viabilidad",     label: "Viabilidad Sectorial",icon: "✅" },
+  { key: "sostenibilidad", label: "Sostenibilidad",      icon: "♻️" },
 ];
 
 const ESTADO_STYLES = {
-  completado: { color: "#4ADE80", border: "rgba(34,197,94,0.35)", bg: "rgba(34,197,94,0.06)", dot: "#22C55E", label: "Completado" },
-  parcial:    { color: "#FCD34D", border: "rgba(245,158,11,0.35)", bg: "rgba(245,158,11,0.06)", dot: "#F59E0B", label: "Parcial" },
+  completado: { color: "#4ADE80", border: "rgba(34,197,94,0.35)",     bg: "rgba(34,197,94,0.06)",   dot: "#22C55E", label: "Completado" },
+  parcial:    { color: "#FCD34D", border: "rgba(245,158,11,0.35)",    bg: "rgba(245,158,11,0.06)",  dot: "#F59E0B", label: "Parcial" },
   pendiente:  { color: "rgba(148,170,200,0.5)", border: "rgba(255,255,255,0.1)", bg: "rgba(255,255,255,0.02)", dot: "#4B5563", label: "Pendiente" },
 };
 
-export default function ProyectoPage() {
-  const [vista, setVista] = useState<Vista>("ficha");
+const BADGE_ESTADO: Record<string, { badge: string; dot: string; label: string }> = {
+  borrador:    { badge: "badge-gray",   dot: "dot-gris",     label: "Borrador" },
+  formulacion: { badge: "badge-yellow", dot: "dot-amarillo", label: "En formulación" },
+  revision:    { badge: "badge-blue",   dot: "dot-amarillo", label: "En revisión" },
+  subsanacion: { badge: "badge-red",    dot: "dot-rojo",     label: "Subsanación" },
+  listo:       { badge: "badge-green",  dot: "dot-verde",    label: "Listo para radicar" },
+};
 
-  const completados = LINEAMIENTOS.filter(l => l.estado === "completado").length;
-  const total = LINEAMIENTOS.length;
+function formatPesos(n: number) {
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2).replace(".", ",")} MM`;
+  if (n >= 1_000_000)     return `$${(n / 1_000_000).toFixed(0)} M`;
+  return "$" + new Intl.NumberFormat("es-CO").format(n);
+}
+
+export default function ProyectoPage() {
+  const params = useParams();
+  const proyectoId = params.id as string;
+
+  const [vista, setVista] = useState<Vista>("ficha");
+  const [proyecto, setProyecto] = useState<Proyecto | null>(null);
+  const [lineamientos, setLineamientos] = useState<LineamientoEstado[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [noEncontrado, setNoEncontrado] = useState(false);
+
+  const cargar = useCallback(async () => {
+    try {
+      const sb = createClient();
+      const { data: proy, error: ep } = await sb
+        .from("proyectos")
+        .select("*")
+        .eq("id", proyectoId)
+        .single();
+
+      if (ep || !proy) { setNoEncontrado(true); return; }
+      setProyecto(proy);
+
+      const { data: lins } = await sb
+        .from("lineamientos_estado")
+        .select("*")
+        .eq("proyecto_id", proyectoId);
+      setLineamientos(lins ?? []);
+    } finally {
+      setCargando(false);
+    }
+  }, [proyectoId]);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  function getEstadoModulo(key: string): "completado" | "parcial" | "pendiente" {
+    const lin = lineamientos.find(l => l.modulo === key);
+    return (lin?.estado as "completado" | "parcial" | "pendiente") ?? "pendiente";
+  }
+
+  const completados = MODULOS_CONFIG.filter(m => getEstadoModulo(m.key) === "completado").length;
+  const totalModulos = MODULOS_CONFIG.length;
+  const avanceCalc = proyecto?.avance ?? Math.round((completados / totalModulos) * 100);
+
+  // ── CARGANDO ──
+  if (cargando) {
+    return (
+      <div className="bg-innova min-h-screen flex">
+        <Sidebar activo="proyectos" />
+        <main className="content-area flex-1 p-8">
+          <div style={{ display: "flex", flexDirection: "column", gap: "1rem", maxWidth: 760 }}>
+            {[200, 120, 80, 400].map((w, i) => (
+              <div key={i} style={{ height: 14, background: "rgba(255,255,255,0.05)", borderRadius: 6, width: `${w}px` }} />
+            ))}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ── NO ENCONTRADO ──
+  if (noEncontrado || !proyecto) {
+    return (
+      <div className="bg-innova min-h-screen flex">
+        <Sidebar activo="proyectos" />
+        <main className="content-area flex-1 p-8" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "3rem", marginBottom: "1rem" }}>🔍</div>
+            <h2 style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.5rem" }}>
+              Proyecto no encontrado
+            </h2>
+            <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "1.5rem" }}>
+              El proyecto no existe o no tiene permiso para verlo.
+            </p>
+            <Link href="/dashboard" style={{ textDecoration: "none" }}>
+              <button className="btn-primary">← Volver al banco de proyectos</button>
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  const badgeEst = BADGE_ESTADO[proyecto.estado] ?? BADGE_ESTADO.borrador;
 
   return (
     <div className="bg-innova min-h-screen flex">
@@ -79,18 +148,23 @@ export default function ProyectoPage() {
           </Link>
           <span style={{ color: "var(--text-muted)", fontSize: "0.7rem" }}>/</span>
           <span style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>
-            Proyecto #{PROYECTO_DEMO.id}
+            {proyecto.nombre.substring(0, 40)}{proyecto.nombre.length > 40 ? "…" : ""}
           </span>
         </div>
 
         {/* ── Header del proyecto ── */}
         <div style={{ marginBottom: "1.75rem" }}>
-          <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "0.6rem" }}>
-            <span className="badge badge-cyan">Deporte y Recreación</span>
-            <span className="badge badge-yellow">
-              <span className="dot-amarillo" style={{ width: 6, height: 6 }} />
-              En formulación
+          <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "0.6rem", flexWrap: "wrap" }}>
+            {proyecto.sector && <span className="badge badge-cyan">{proyecto.sector}</span>}
+            <span className={`badge ${badgeEst.badge}`}>
+              <span className={badgeEst.dot} style={{ width: 6, height: 6 }} />
+              {badgeEst.label}
             </span>
+            {proyecto.vigencia && (
+              <span className="badge badge-gray" style={{ fontSize: "0.6rem" }}>
+                Vigencia {proyecto.vigencia}
+              </span>
+            )}
           </div>
           <h1 style={{
             fontSize: "1.25rem", fontWeight: 700,
@@ -98,10 +172,13 @@ export default function ProyectoPage() {
             letterSpacing: "-0.02em", maxWidth: "720px",
             marginBottom: "0.5rem",
           }}>
-            {PROYECTO_DEMO.nombre}
+            {proyecto.nombre}
           </h1>
           <p style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-            📍 {PROYECTO_DEMO.localizacion} · 💰 {PROYECTO_DEMO.presupuesto}
+            {[proyecto.municipio, proyecto.departamento].filter(Boolean).join(", ") && (
+              `📍 ${[proyecto.municipio, proyecto.departamento].filter(Boolean).join(", ")}`
+            )}
+            {(proyecto.presupuesto_total ?? 0) > 0 && ` · 💰 ${formatPesos(proyecto.presupuesto_total ?? 0)}`}
           </p>
         </div>
 
@@ -112,32 +189,25 @@ export default function ProyectoPage() {
               <span style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--text-secondary)" }}>
                 Avance de formulación
               </span>
-              <span style={{
-                fontSize: "0.65rem", color: "var(--text-muted)",
-                marginLeft: "0.75rem",
-              }}>
-                {completados}/{total} módulos completados
+              <span style={{ fontSize: "0.65rem", color: "var(--text-muted)", marginLeft: "0.75rem" }}>
+                {completados}/{totalModulos} módulos completados
               </span>
             </div>
             <span style={{
               fontSize: "1.3rem", fontWeight: 800,
-              color: PROYECTO_DEMO.avance >= 80 ? "#4ADE80" : PROYECTO_DEMO.avance >= 50 ? "#FCD34D" : "var(--text-secondary)",
+              color: avanceCalc >= 80 ? "#4ADE80" : avanceCalc >= 50 ? "#FCD34D" : "var(--text-secondary)",
               letterSpacing: "-0.02em",
             }}>
-              {PROYECTO_DEMO.avance}%
+              {avanceCalc}%
             </span>
           </div>
           <div className="progress-bar" style={{ height: 8, borderRadius: 6 }}>
-            <div className="progress-fill" style={{ width: `${PROYECTO_DEMO.avance}%` }} />
+            <div className="progress-fill" style={{ width: `${avanceCalc}%` }} />
           </div>
         </div>
 
         {/* ── Tabs ── */}
-        <div style={{
-          display: "flex", gap: "0",
-          marginBottom: "2rem",
-          borderBottom: "1px solid var(--border)",
-        }}>
+        <div style={{ display: "flex", gap: "0", marginBottom: "2rem", borderBottom: "1px solid var(--border)" }}>
           {([
             { key: "ficha",        label: "Ficha P-001",    icon: "📋" },
             { key: "lineamientos", label: "Lineamientos",   icon: "📊" },
@@ -168,27 +238,28 @@ export default function ProyectoPage() {
           ))}
         </div>
 
-        {/* ─────────────────────────────────────
-            VISTA 1: FICHA P-001
-        ───────────────────────────────────── */}
+        {/* ── VISTA 1: FICHA P-001 ── */}
         {vista === "ficha" && (
           <div style={{ maxWidth: 760 }}>
             <table className="tabla-ficha">
               <tbody>
                 {[
-                  ["Nombre del Proyecto",    PROYECTO_DEMO.nombre],
-                  ["Objetivo General",       PROYECTO_DEMO.objetivo],
-                  ["Población beneficiada",  PROYECTO_DEMO.poblacion + " personas"],
-                  ["Valor presupuesto",      PROYECTO_DEMO.presupuesto],
-                  ["Localización",           PROYECTO_DEMO.localizacion],
-                  ["Programa",               PROYECTO_DEMO.programa],
-                  ["Sector",                 PROYECTO_DEMO.sector],
-                  ["Productos",              PROYECTO_DEMO.producto],
-                  ["Indicadores",            PROYECTO_DEMO.indicador],
-                  ["Medidos a través de",    PROYECTO_DEMO.medidoA],
-                  ["Meta",                   PROYECTO_DEMO.meta],
-                  ["Departamento",           PROYECTO_DEMO.departamento],
-                  ["Municipio",              PROYECTO_DEMO.municipio],
+                  ["Nombre del Proyecto",     proyecto.nombre],
+                  ["Objetivo General",        proyecto.objetivo ?? "—"],
+                  ["Sector",                  proyecto.sector ?? "—"],
+                  ["Programa",                proyecto.programa ?? "—"],
+                  ["Departamento",            proyecto.departamento ?? "—"],
+                  ["Municipio",               proyecto.municipio ?? "—"],
+                  ["Localización",            proyecto.localizacion_detalle ?? "—"],
+                  ["Población beneficiada",   proyecto.poblacion_beneficiada > 0 ? `${proyecto.poblacion_beneficiada.toLocaleString("es-CO")} personas` : "—"],
+                  ["Valor del presupuesto",   (proyecto.presupuesto_total ?? 0) > 0 ? formatPesos(proyecto.presupuesto_total ?? 0) : "—"],
+                  ["Producto MGA",            proyecto.nombre_producto ?? "—"],
+                  ["Indicador de producto",   proyecto.nombre_indicador ?? "—"],
+                  ["Meta física",             (proyecto.meta_producto ?? 0) > 0 ? String(proyecto.meta_producto) : "—"],
+                  ["Entidad ejecutora",       proyecto.entidad_ejecutora ?? "—"],
+                  ["Representante legal",     proyecto.representante_legal ?? "—"],
+                  ["BPIN",                    proyecto.bpin ?? "Pendiente de asignación"],
+                  ["Vigencia",                proyecto.vigencia ? String(proyecto.vigencia) : "—"],
                 ].map(([campo, valor]) => (
                   <tr key={campo}>
                     <td>{campo}</td>
@@ -199,7 +270,7 @@ export default function ProyectoPage() {
             </table>
 
             <div style={{ marginTop: "1.5rem", display: "flex", gap: "0.75rem" }}>
-              <Link href={`/proyectos/${PROYECTO_DEMO.id}/editar`} style={{ textDecoration: "none" }}>
+              <Link href={`/proyectos/${proyectoId}/editar`} style={{ textDecoration: "none" }}>
                 <button className="btn-secondary" style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
@@ -220,9 +291,7 @@ export default function ProyectoPage() {
           </div>
         )}
 
-        {/* ─────────────────────────────────────
-            VISTA 2: LINEAMIENTOS
-        ───────────────────────────────────── */}
+        {/* ── VISTA 2: LINEAMIENTOS ── */}
         {vista === "lineamientos" && (
           <div>
             <div style={{ marginBottom: "1.5rem" }}>
@@ -240,10 +309,11 @@ export default function ProyectoPage() {
               gap: "0.75rem",
               maxWidth: 800,
             }}>
-              {LINEAMIENTOS.map((item) => {
-                const sty = ESTADO_STYLES[item.estado as keyof typeof ESTADO_STYLES];
+              {MODULOS_CONFIG.map((item) => {
+                const estado = getEstadoModulo(item.key);
+                const sty = ESTADO_STYLES[estado];
                 return (
-                  <Link key={item.key} href={item.href} style={{ textDecoration: "none" }}>
+                  <Link key={item.key} href={`/proyectos/${proyectoId}/${item.key}`} style={{ textDecoration: "none" }}>
                     <div
                       style={{
                         padding: "1rem 1.1rem",
@@ -270,7 +340,7 @@ export default function ProyectoPage() {
                         <div style={{
                           width: 8, height: 8, borderRadius: "50%",
                           background: sty.dot,
-                          boxShadow: item.estado === "completado" ? `0 0 6px ${sty.dot}80` : "none",
+                          boxShadow: estado === "completado" ? `0 0 6px ${sty.dot}80` : "none",
                         }} />
                       </div>
                       <div>
@@ -299,9 +369,7 @@ export default function ProyectoPage() {
           </div>
         )}
 
-        {/* ─────────────────────────────────────
-            VISTA 3: ENTREGABLES → redirige a página completa
-        ───────────────────────────────────── */}
+        {/* ── VISTA 3: ENTREGABLES ── */}
         {vista === "entregables" && (
           <div style={{ maxWidth: 560 }}>
             <div style={{ marginBottom: "1.5rem" }}>
@@ -313,14 +381,13 @@ export default function ProyectoPage() {
               </p>
             </div>
 
-            {/* Preview de documentos */}
             {[
-              { icon: "📋", label: "Ficha Técnica P-001",          fmt: "PDF / DOCX" },
-              { icon: "📄", label: "Documento Técnico Descriptivo", fmt: "DOCX" },
-              { icon: "💰", label: "Resumen Presupuestal",          fmt: "PDF / XLSX" },
-              { icon: "♻️", label: "Anexo 07 — Sostenibilidad",     fmt: "DOCX / PDF" },
-              { icon: "✅", label: "Concepto de Viabilidad",        fmt: "PDF" },
-              { icon: "☑️", label: "Lista de Chequeo SGR",          fmt: "PDF" },
+              { icon: "📋", label: "Ficha Técnica P-001",           fmt: "PDF / DOCX" },
+              { icon: "📄", label: "Documento Técnico Descriptivo",  fmt: "DOCX" },
+              { icon: "💰", label: "Resumen Presupuestal",           fmt: "PDF / XLSX" },
+              { icon: "♻️", label: "Anexo 07 — Sostenibilidad",      fmt: "DOCX / PDF" },
+              { icon: "✅", label: "Concepto de Viabilidad",         fmt: "PDF" },
+              { icon: "☑️", label: "Lista de Chequeo SGR",           fmt: "PDF" },
             ].map(item => (
               <div key={item.label} style={{
                 display: "flex", alignItems: "center", gap: "0.75rem",
@@ -334,7 +401,7 @@ export default function ProyectoPage() {
               </div>
             ))}
 
-            <Link href={`/proyectos/${PROYECTO_DEMO.id}/entregables`} style={{ textDecoration: "none" }}>
+            <Link href={`/proyectos/${proyectoId}/entregables`} style={{ textDecoration: "none" }}>
               <button className="btn-primary" style={{
                 display: "flex", alignItems: "center", justifyContent: "center",
                 gap: "0.5rem", width: "100%", padding: "0.85rem", marginTop: "1rem", fontSize: "0.82rem",

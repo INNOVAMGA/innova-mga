@@ -1,109 +1,171 @@
 /* ──────────────────────────────────────────────────────────────
    INNOVA MGA — Database Types for Supabase
-   Generados a partir del schema en: src/lib/supabase/schema.sql
+   Tipos explícitos para evitar referencias circulares
 ────────────────────────────────────────────────────────────── */
 
-export type EstadoProyecto = "borrador" | "formulacion" | "revision" | "subsanacion" | "listo";
+export type EstadoProyecto   = "borrador" | "formulacion" | "revision" | "subsanacion" | "listo";
 export type EstadoLineamiento = "pendiente" | "parcial" | "completado";
 
+/* ─── Proyectos ────────────────────────────────────────────── */
+export interface ProyectoRow {
+  id: string;
+  created_at: string;
+  updated_at: string;
+  usuario_id: string;
+  nombre: string;
+  bpin: string | null;
+  estado: EstadoProyecto;
+  sector: string | null;
+  programa: string | null;
+  departamento: string | null;
+  municipio: string | null;
+  localizacion_detalle: string | null;
+  presupuesto_total: number;
+  objetivo: string | null;
+  descripcion: string | null;
+  poblacion_beneficiada: number;
+  codigo_producto: string | null;
+  nombre_producto: string | null;
+  unidad_medida: string | null;
+  meta_producto: number;
+  codigo_indicador: string | null;
+  nombre_indicador: string | null;
+  avance: number;
+  vigencia: number;
+  nit_ejecutora: string | null;
+  entidad_ejecutora: string | null;
+  representante_legal: string | null;
+}
+
+export interface ProyectoInsert {
+  usuario_id: string;
+  nombre: string;
+  bpin?: string | null;
+  estado?: EstadoProyecto;
+  sector?: string | null;
+  programa?: string | null;
+  departamento?: string | null;
+  municipio?: string | null;
+  localizacion_detalle?: string | null;
+  presupuesto_total?: number;
+  objetivo?: string | null;
+  descripcion?: string | null;
+  poblacion_beneficiada?: number;
+  codigo_producto?: string | null;
+  nombre_producto?: string | null;
+  unidad_medida?: string | null;
+  meta_producto?: number;
+  codigo_indicador?: string | null;
+  nombre_indicador?: string | null;
+  avance?: number;
+  vigencia?: number;
+  nit_ejecutora?: string | null;
+  entidad_ejecutora?: string | null;
+  representante_legal?: string | null;
+}
+
+export type ProyectoUpdate = Partial<ProyectoInsert>;
+
+/* ─── Lineamientos ─────────────────────────────────────────── */
+export interface LineamientoEstadoRow {
+  id: string;
+  proyecto_id: string;
+  modulo: string;
+  estado: EstadoLineamiento;
+  datos: Record<string, unknown>;
+  updated_at: string;
+}
+
+export interface LineamientoEstadoInsert {
+  proyecto_id: string;
+  modulo: string;
+  estado?: EstadoLineamiento;
+  datos?: Record<string, unknown>;
+}
+
+export type LineamientoEstadoUpdate = Partial<LineamientoEstadoInsert>;
+
+/* ─── Archivos ─────────────────────────────────────────────── */
+export interface ArchivoRow {
+  id: string;
+  proyecto_id: string;
+  modulo: string | null;
+  nombre: string;
+  tipo: string | null;
+  storage_path: string;
+  size: number | null;
+  created_at: string;
+}
+
+export interface ArchivoInsert {
+  proyecto_id: string;
+  modulo?: string | null;
+  nombre: string;
+  tipo?: string | null;
+  storage_path: string;
+  size?: number | null;
+}
+
+/* ─── Perfiles ─────────────────────────────────────────────── */
+export interface PerfilRow {
+  id: string;
+  usuario_id: string;
+  nombre_completo: string | null;
+  cargo: string | null;
+  entidad: string | null;
+  telefono: string | null;
+  avatar_url: string | null;
+  created_at: string;
+}
+
+export interface PerfilInsert {
+  usuario_id: string;
+  nombre_completo?: string | null;
+  cargo?: string | null;
+  entidad?: string | null;
+  telefono?: string | null;
+  avatar_url?: string | null;
+}
+
+/* ─── Database interface for Supabase client ──────────────── */
 export interface Database {
   public: {
     Tables: {
       proyectos: {
-        Row: {
-          id: string;
-          created_at: string;
-          updated_at: string;
-          usuario_id: string;
-          nombre: string;
-          bpin: string | null;
-          estado: EstadoProyecto;
-          sector: string | null;
-          programa: string | null;
-          departamento: string | null;
-          municipio: string | null;
-          localizacion_detalle: string | null;
-          presupuesto_total: number;
-          objetivo: string | null;
-          descripcion: string | null;
-          poblacion_beneficiada: number;
-          codigo_producto: string | null;
-          nombre_producto: string | null;
-          unidad_medida: string | null;
-          meta_producto: number;
-          codigo_indicador: string | null;
-          nombre_indicador: string | null;
-          avance: number;
-          vigencia: number;
-          nit_ejecutora: string | null;
-          entidad_ejecutora: string | null;
-          representante_legal: string | null;
-        };
-        Insert: Omit<Database["public"]["Tables"]["proyectos"]["Row"], "id" | "created_at" | "updated_at">;
-        Update: Partial<Database["public"]["Tables"]["proyectos"]["Insert"]>;
+        Row: ProyectoRow;
+        Insert: ProyectoInsert;
+        Update: ProyectoUpdate;
+        Relationships: [];
       };
-
       lineamientos_estado: {
-        Row: {
-          id: string;
-          proyecto_id: string;
-          modulo: string;
-          estado: EstadoLineamiento;
-          datos: Record<string, unknown>;
-          updated_at: string;
-        };
-        Insert: Omit<Database["public"]["Tables"]["lineamientos_estado"]["Row"], "id" | "updated_at">;
-        Update: Partial<Database["public"]["Tables"]["lineamientos_estado"]["Insert"]>;
+        Row: LineamientoEstadoRow;
+        Insert: LineamientoEstadoInsert;
+        Update: LineamientoEstadoUpdate;
+        Relationships: [];
       };
-
       archivos: {
-        Row: {
-          id: string;
-          proyecto_id: string;
-          modulo: string | null;
-          nombre: string;
-          tipo: string | null;
-          storage_path: string;
-          size: number | null;
-          created_at: string;
-        };
-        Insert: Omit<Database["public"]["Tables"]["archivos"]["Row"], "id" | "created_at">;
-        Update: Partial<Database["public"]["Tables"]["archivos"]["Insert"]>;
+        Row: ArchivoRow;
+        Insert: ArchivoInsert;
+        Update: Partial<ArchivoInsert>;
+        Relationships: [];
       };
-
       perfiles: {
-        Row: {
-          id: string;
-          usuario_id: string;
-          nombre_completo: string | null;
-          cargo: string | null;
-          entidad: string | null;
-          telefono: string | null;
-          avatar_url: string | null;
-          created_at: string;
-        };
-        Insert: Omit<Database["public"]["Tables"]["perfiles"]["Row"], "created_at">;
-        Update: Partial<Database["public"]["Tables"]["perfiles"]["Insert"]>;
+        Row: PerfilRow;
+        Insert: PerfilInsert;
+        Update: Partial<PerfilInsert>;
+        Relationships: [];
       };
     };
-
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
-    Enums: {
-      estado_proyecto: EstadoProyecto;
-      estado_lineamiento: EstadoLineamiento;
-    };
+    Views: { [_: string]: never };
+    Functions: { [_: string]: never };
   };
 }
 
-/* ─── Helper types ────────────────────────────────────────── */
-export type Proyecto = Database["public"]["Tables"]["proyectos"]["Row"];
-export type ProyectoInsert = Database["public"]["Tables"]["proyectos"]["Insert"];
-export type ProyectoUpdate = Database["public"]["Tables"]["proyectos"]["Update"];
-
-export type LineamientoEstado = Database["public"]["Tables"]["lineamientos_estado"]["Row"];
-export type Archivo = Database["public"]["Tables"]["archivos"]["Row"];
-export type Perfil = Database["public"]["Tables"]["perfiles"]["Row"];
+/* ─── Helper types (alias conveniente) ───────────────────── */
+export type Proyecto         = ProyectoRow;
+export type LineamientoEstado = LineamientoEstadoRow;
+export type Archivo          = ArchivoRow;
+export type Perfil           = PerfilRow;
 
 /* ─── Estados con estilos ────────────────────────────────── */
 export const ESTADO_PROYECTO_META: Record<EstadoProyecto, {

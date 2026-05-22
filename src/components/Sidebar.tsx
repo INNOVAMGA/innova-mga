@@ -1,7 +1,10 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Logo } from "./Logo";
+import { createClient } from "@/lib/supabase/client";
 
 const MENU = [
   {
@@ -40,6 +43,52 @@ const MENU = [
 ];
 
 export function Sidebar({ activo }: { activo?: string }) {
+  const router = useRouter();
+  const [nombreUsuario, setNombreUsuario] = useState("Usuario");
+  const [inicialesUsuario, setInicialesUsuario] = useState("U");
+  const [cerrando, setCerrando] = useState(false);
+
+  useEffect(() => {
+    async function cargarUsuario() {
+      try {
+        const sb = createClient();
+        const { data: { user } } = await sb.auth.getUser();
+        if (!user) return;
+
+        // Intentar obtener el perfil
+        const { data: perfil } = await sb
+          .from("perfiles")
+          .select("nombre_completo, entidad")
+          .eq("usuario_id", user.id)
+          .single();
+
+        const nombre = perfil?.nombre_completo || user.email || "Usuario";
+        setNombreUsuario(nombre.length > 22 ? nombre.substring(0, 22) + "…" : nombre);
+
+        // Iniciales
+        const partes = nombre.split(" ").filter(Boolean);
+        const iniciales = partes.length >= 2
+          ? partes[0][0] + partes[1][0]
+          : nombre.substring(0, 2);
+        setInicialesUsuario(iniciales.toUpperCase());
+      } catch {
+        // silencioso
+      }
+    }
+    cargarUsuario();
+  }, []);
+
+  async function handleLogout() {
+    setCerrando(true);
+    try {
+      const sb = createClient();
+      await sb.auth.signOut();
+      router.push("/login");
+    } catch {
+      setCerrando(false);
+    }
+  }
+
   return (
     <aside className="sidebar">
       {/* Logo */}
@@ -100,32 +149,65 @@ export function Sidebar({ activo }: { activo?: string }) {
         </p>
       </div>
 
-      {/* Footer */}
+      {/* Footer con usuario y logout */}
       <div style={{
-        padding: "0.85rem 1rem",
+        padding: "0.75rem 1rem",
         borderTop: "1px solid rgba(255,255,255,0.07)",
-        display: "flex",
-        alignItems: "center",
-        gap: "0.6rem",
       }}>
-        <div style={{
-          width: 28, height: 28,
-          borderRadius: "50%",
-          background: "linear-gradient(135deg, #3B82F6, #06b6d4)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: "0.62rem", fontWeight: 700, color: "#fff",
-          flexShrink: 0,
-        }}>
-          GM
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem" }}>
+          <div style={{
+            width: 28, height: 28,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #3B82F6, #06b6d4)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "0.62rem", fontWeight: 700, color: "#fff",
+            flexShrink: 0,
+          }}>
+            {inicialesUsuario}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: "0.68rem", fontWeight: 600, color: "rgba(240,244,255,0.75)", lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {nombreUsuario}
+            </p>
+            <p style={{ fontSize: "0.58rem", color: "rgba(148,170,200,0.4)", marginTop: "2px" }}>
+              INNOVA MGA v2.0
+            </p>
+          </div>
         </div>
-        <div>
-          <p style={{ fontSize: "0.68rem", fontWeight: 600, color: "rgba(240,244,255,0.75)", lineHeight: 1 }}>
-            Gestora Maben
-          </p>
-          <p style={{ fontSize: "0.58rem", color: "rgba(148,170,200,0.4)", marginTop: "2px" }}>
-            v2.0 · INNOVA MGA
-          </p>
-        </div>
+        <button
+          onClick={handleLogout}
+          disabled={cerrando}
+          style={{
+            width: "100%",
+            padding: "0.45rem 0.6rem",
+            background: "transparent",
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 6,
+            color: "rgba(148,170,200,0.6)",
+            fontSize: "0.65rem",
+            cursor: cerrando ? "not-allowed" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "0.4rem",
+            transition: "all 0.15s",
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)";
+            e.currentTarget.style.color = "#F87171";
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+            e.currentTarget.style.color = "rgba(148,170,200,0.6)";
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          {cerrando ? "Cerrando…" : "Cerrar sesión"}
+        </button>
       </div>
     </aside>
   );

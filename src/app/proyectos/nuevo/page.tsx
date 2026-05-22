@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { Sidebar } from "@/components/Sidebar";
 import { SECTORES, FUENTES_FINANCIACION } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 const DEPARTAMENTOS_MUNICIPIOS: Record<string, string[]> = {
   "Antioquia": ["Medellín", "Bello", "Itagüí", "San Pedro", "Envigado", "Apartadó", "Turbo", "Caucasia"],
@@ -52,6 +53,7 @@ export default function NuevoProyectoPage() {
   const router = useRouter();
   const [paso, setPaso] = useState(1);
   const [guardando, setGuardando] = useState(false);
+  const [errorGuardar, setErrorGuardar] = useState("");
 
   const [form, setForm] = useState({
     nombre: "",
@@ -101,9 +103,56 @@ export default function NuevoProyectoPage() {
   }
 
   async function handleGuardar() {
+    if (!form.nombre.trim()) {
+      setErrorGuardar("El nombre del proyecto es obligatorio.");
+      setPaso(1);
+      return;
+    }
+
+    setErrorGuardar("");
     setGuardando(true);
-    await new Promise(r => setTimeout(r, 800));
-    router.push("/proyectos/1");
+
+    try {
+      const sb = createClient();
+      const { data: { user } } = await sb.auth.getUser();
+
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      const { data, error } = await sb
+        .from("proyectos")
+        .insert({
+          usuario_id: user.id,
+          nombre: form.nombre.trim(),
+          objetivo: form.objetivo || null,
+          sector: form.sector || null,
+          programa: form.programa || null,
+          departamento: form.departamento || null,
+          municipio: form.municipio || null,
+          localizacion_detalle: form.localizacion || null,
+          poblacion_beneficiada: form.poblacionObjetivo ? parseInt(form.poblacionObjetivo) : 0,
+          presupuesto_total: form.presupuesto ? parseFloat(form.presupuesto) : 0,
+          entidad_ejecutora: form.entidadEjecutora || null,
+          representante_legal: form.nombreAlcalde || null,
+          nombre_producto: form.producto || null,
+          nombre_indicador: form.indicador || null,
+          meta_producto: form.meta ? parseFloat(form.meta) : 0,
+          estado: "borrador",
+          avance: 0,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      router.push(`/proyectos/${data.id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error al crear el proyecto";
+      setErrorGuardar(msg);
+      setGuardando(false);
+    }
   }
 
   const ODS_LIST = [
@@ -387,6 +436,16 @@ export default function NuevoProyectoPage() {
                   </label>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Error al guardar */}
+          {errorGuardar && (
+            <div className="validation-msg validation-err" style={{ marginTop: "1rem" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              {errorGuardar}
             </div>
           )}
 
