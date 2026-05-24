@@ -159,7 +159,10 @@ export default function NormativasPage() {
         v !== "" && v !== null && v !== undefined &&
         !(Array.isArray(v) && v.length === 0)
       );
-      const estado = tieneData ? "parcial" : "pendiente";
+      const esCompleto =
+        data.sectorProyecto?.trim().length > 0 &&
+        data.analisisNormativo?.trim().length > 10;
+      const estado = esCompleto ? "completado" : tieneData ? "parcial" : "pendiente";
       await sb.from("lineamientos_estado").upsert(
         { proyecto_id: proyectoId, modulo: "normativas", datos: data as unknown as Record<string, unknown>, estado },
         { onConflict: "proyecto_id,modulo" }

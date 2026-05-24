@@ -229,7 +229,10 @@ export default function LocalizacionPage() {
         v !== "" && v !== null && v !== undefined &&
         !(Array.isArray(v) && v.length === 0)
       );
-      const estado = tieneData ? "parcial" : "pendiente";
+      const esCompleto =
+        data.departamento?.trim().length > 0 &&
+        data.municipio?.trim().length > 0;
+      const estado = esCompleto ? "completado" : tieneData ? "parcial" : "pendiente";
       await sb.from("lineamientos_estado").upsert(
         { proyecto_id: proyectoId, modulo: "localizacion", datos: data as unknown as Record<string, unknown>, estado },
         { onConflict: "proyecto_id,modulo" }

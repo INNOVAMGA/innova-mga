@@ -138,7 +138,12 @@ export default function EnfoquePage({ params }: { params: { id: string } }) {
         v !== "" && v !== null && v !== undefined &&
         !(Array.isArray(v) && v.length === 0)
       );
-      const estado = tieneData ? "parcial" : "pendiente";
+      const esCompleto =
+        data.problemaCentral.trim().length > 10 &&
+        data.objetivoGeneral.trim().length > 10 &&
+        data.causasDirectas.filter((c: { texto: string }) => c.texto.trim().length > 3).length >= 2 &&
+        data.efectosDirectos.filter((c: { texto: string }) => c.texto.trim().length > 3).length >= 1;
+      const estado = esCompleto ? "completado" : tieneData ? "parcial" : "pendiente";
       await sb.from("lineamientos_estado").upsert(
         { proyecto_id: proyectoId, modulo: "enfoque", datos: data as unknown as Record<string, unknown>, estado },
         { onConflict: "proyecto_id,modulo" }

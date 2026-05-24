@@ -6,40 +6,7 @@ import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { Sidebar } from "@/components/Sidebar";
 import { createClient } from "@/lib/supabase/client";
-
-const DEPARTAMENTOS_MUNICIPIOS: Record<string, string[]> = {
-  "Antioquia": ["Medellín", "Bello", "Itagüí", "San Pedro", "Envigado", "Apartadó", "Turbo", "Caucasia"],
-  "Cundinamarca": ["Bogotá D.C.", "Soacha", "Facatativá", "Zipaquirá", "Chía", "Mosquera", "Fusagasugá"],
-  "Valle del Cauca": ["Cali", "Palmira", "Buenaventura", "Tuluá", "Cartago", "Buga"],
-  "Atlántico": ["Barranquilla", "Soledad", "Malambo", "Sabanalarga", "Puerto Colombia"],
-  "Bolívar": ["Cartagena", "Magangué", "El Carmen de Bolívar", "Mompox"],
-  "Santander": ["Bucaramanga", "Floridablanca", "Girón", "Barrancabermeja", "San Gil"],
-  "Norte de Santander": ["Cúcuta", "Ocaña", "Pamplona", "El Carmen", "Tibú"],
-  "Córdoba": ["Montería", "Lorica", "Sahagún", "Cereté", "Montelíbano"],
-  "Nariño": ["Pasto", "Tumaco", "Ipiales", "La Unión"],
-  "Cauca": ["Popayán", "Santander de Quilichao", "Puerto Tejada", "Piendamó"],
-  "Huila": ["Neiva", "Pitalito", "Garzón", "La Plata", "Campoalegre"],
-  "Tolima": ["Ibagué", "Espinal", "Melgar", "Honda", "Chaparral"],
-  "Meta": ["Villavicencio", "Acacías", "Granada", "Puerto López", "San Martín"],
-  "Caquetá": ["Florencia", "San Vicente del Caguán", "Valparaíso", "Cartagena del Chairá"],
-  "Casanare": ["Yopal", "Aguazul", "Villanueva", "Tauramena", "Paz de Ariporo"],
-  "Chocó": ["Quibdó", "Istmina", "Tadó", "Riosucio", "Nuquí"],
-  "Magdalena": ["Santa Marta", "Ciénaga", "Fundación", "Plato", "El Banco"],
-  "Cesar": ["Valledupar", "Aguachica", "Codazzi", "La Paz"],
-  "La Guajira": ["Riohacha", "Maicao", "Uribia", "Manaure"],
-  "Sucre": ["Sincelejo", "Corozal", "Sampués", "Tolú"],
-  "Putumayo": ["Mocoa", "Puerto Asís", "Orito", "Valle del Guamuez"],
-  "Boyacá": ["Tunja", "Duitama", "Sogamoso", "Chiquinquirá"],
-  "Risaralda": ["Pereira", "Dosquebradas", "Santa Rosa de Cabal"],
-  "Quindío": ["Armenia", "Calarcá", "Montenegro", "Circasia"],
-  "Caldas": ["Manizales", "La Dorada", "Riosucio", "Chinchiná"],
-  "Arauca": ["Arauca", "Saravena", "Tame", "Fortul"],
-  "Amazonas": ["Leticia", "Puerto Nariño"],
-  "Guainía": ["Inírida"],
-  "Vaupés": ["Mitú"],
-  "Vichada": ["Puerto Carreño"],
-  "Guaviare": ["San José del Guaviare"],
-};
+import { DEPARTAMENTOS_MUNICIPIOS, DEPARTAMENTOS } from "@/lib/colombia";
 
 const SECTORES = [
   "Deporte y Recreación", "Educación", "Salud",
@@ -290,7 +257,7 @@ export default function EditarProyectoPage() {
             <Field label="Departamento">
               <select style={inputStyle} value={form.departamento} onChange={e => { set("departamento", e.target.value); set("municipio", ""); }}>
                 <option value="">Seleccionar…</option>
-                {Object.keys(DEPARTAMENTOS_MUNICIPIOS).sort().map(d => <option key={d} value={d}>{d}</option>)}
+                {DEPARTAMENTOS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </Field>
             <Field label="Municipio">

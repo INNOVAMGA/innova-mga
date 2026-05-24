@@ -146,7 +146,10 @@ export default function DisenosPage() {
         v !== "" && v !== null && v !== undefined &&
         !(Array.isArray(v) && v.length === 0)
       );
-      const estado = tieneData ? "parcial" : "pendiente";
+      const esCompleto =
+        Array.isArray(data.documentos) && data.documentos.length >= 1 &&
+        data.documentos.some((d: { tipo?: string; titulo?: string }) => d.tipo || d.titulo);
+      const estado = esCompleto ? "completado" : tieneData ? "parcial" : "pendiente";
       await sb.from("lineamientos_estado").upsert(
         { proyecto_id: proyectoId, modulo: "disenos", datos: data as unknown as Record<string, unknown>, estado },
         { onConflict: "proyecto_id,modulo" }

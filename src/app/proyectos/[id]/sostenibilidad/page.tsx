@@ -195,7 +195,16 @@ export default function SostenibilidadPage() {
         v !== "" && v !== null && v !== undefined &&
         !(Array.isArray(v) && v.length === 0)
       );
-      const estado = tieneData ? "parcial" : "pendiente";
+      const tabs: string[] = ["institucional", "tecnica", "financiera", "ambiental", "social", "riesgos", "conclusiones"];
+      const tabsCompletos = tabs.filter(t => {
+        if (t === "institucional") return data.entidadOperadora && data.tipoEntidad;
+        if (t === "tecnica") return data.vidaUtilInfraestructura;
+        if (t === "financiera") return data.costoAnualOperacion && data.fuentePrincipalOM;
+        if (t === "conclusiones") return data.conclusiones?.trim().length > 10;
+        return Object.entries(data).some(([k, v]) => k.toLowerCase().includes(t) && v !== "" && v != null);
+      }).length;
+      const esCompleto = tabsCompletos >= 4;
+      const estado = esCompleto ? "completado" : tieneData ? "parcial" : "pendiente";
       await sb.from("lineamientos_estado").upsert(
         { proyecto_id: proyectoId, modulo: "sostenibilidad", datos: data as unknown as Record<string, unknown>, estado },
         { onConflict: "proyecto_id,modulo" }

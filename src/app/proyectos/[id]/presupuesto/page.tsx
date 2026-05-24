@@ -373,7 +373,13 @@ export default function PresupuestoPage() {
         v !== "" && v !== null && v !== undefined &&
         !(Array.isArray(v) && v.length === 0)
       );
-      const estado = tieneData ? "parcial" : "pendiente";
+      const totalActiv = Array.isArray(data.actividades)
+        ? data.actividades.reduce((s: number, a: Actividad) => s + parseNum(a.cantidad) * parseNum(a.valorUnitario), 0)
+        : 0;
+      const esCompleto =
+        Array.isArray(data.componentes) && data.componentes.length >= 1 && totalActiv > 0 &&
+        Array.isArray(data.fuentesFinanciacion) && data.fuentesFinanciacion.length >= 1;
+      const estado = esCompleto ? "completado" : tieneData ? "parcial" : "pendiente";
       await sb.from("lineamientos_estado").upsert(
         { proyecto_id: proyectoId, modulo: "presupuesto", datos: data as unknown as Record<string, unknown>, estado },
         { onConflict: "proyecto_id,modulo" }

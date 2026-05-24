@@ -118,7 +118,10 @@ export default function DocumentosPage() {
       const sb = createClient();
       // Calcular estado basado en si hay datos relevantes
       const adjuntos = docs.filter(d => d.estado === "Adjunto").length;
-      const estado = adjuntos > 0 ? "parcial" : "pendiente";
+      const obligatoriosTotal = docs.filter(d => d.obligatorio).length;
+      const obligatoriosAdj = docs.filter(d => d.obligatorio && d.estado === "Adjunto").length;
+      const esCompleto = obligatoriosTotal > 0 && obligatoriosAdj >= Math.ceil(obligatoriosTotal * 0.5);
+      const estado = esCompleto ? "completado" : adjuntos > 0 ? "parcial" : "pendiente";
       await sb.from("lineamientos_estado").upsert(
         { proyecto_id: proyectoId, modulo: "documentos", datos: docs as unknown as Record<string, unknown>, estado },
         { onConflict: "proyecto_id,modulo" }
