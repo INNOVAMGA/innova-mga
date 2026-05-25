@@ -42,6 +42,12 @@ let PROYECTO = {
 };
 
 /* ──────────────────────────────────────────────────────────────
+   Lineamientos IA — se rellena desde Supabase al cargar
+────────────────────────────────────────────────────────────── */
+// eslint-disable-next-line prefer-const
+let LINEAMIENTOS: Record<string, Record<string, unknown>> = {};
+
+/* ──────────────────────────────────────────────────────────────
    CATÁLOGO DE ENTREGABLES
 ────────────────────────────────────────────────────────────── */
 type EstadoDoc = "disponible" | "generando" | "listo" | "bloqueado";
@@ -357,36 +363,35 @@ async function generarDocumentoTecnicoDocx() {
             ],
           }),
 
-          // 2. DIAGNÓSTICO
+          // 2. DIAGNÓSTICO — usa contenido IA si está disponible
           mkHeading("2. DIAGNÓSTICO Y PROBLEMA", 1),
           mkHeading("2.1 Descripción de la Situación Actual", 2),
           mkPara(
-            `El municipio de ${PROYECTO.municipio}, departamento de ${PROYECTO.departamento}, presenta una deficiente infraestructura deportiva y recreativa que no permite atender adecuadamente a la población en edad escolar y comunidad en general. La comunidad de la Vereda El Centro carece de espacios físicos apropiados para la práctica del deporte y la recreación, situación que afecta negativamente la calidad de vida de sus ${PROYECTO.poblacion} habitantes.`
+            (LINEAMIENTOS.enfoque?.situacionExistente as string) ||
+            `El municipio de ${PROYECTO.municipio}, departamento de ${PROYECTO.departamento}, presenta necesidades de inversión que afectan la calidad de vida de sus ${PROYECTO.poblacion} habitantes.`
           ),
-          mkHeading("2.2 Identificación del Problema", 2),
-          mkPara("Problema Central: Deficiente infraestructura deportiva y recreativa en el municipio de " + PROYECTO.municipio + "."),
+          mkHeading("2.2 Magnitud del Problema", 2),
+          mkPara((LINEAMIENTOS.enfoque?.magnitudProblema as string) || "Ver diagnóstico técnico del proyecto."),
+          mkHeading("2.3 Identificación del Problema", 2),
+          mkPara(`Problema Central: ${(LINEAMIENTOS.enfoque?.problemaCentral as string) || PROYECTO.nombre}`),
           mkPara("Causas Directas:", true),
-          mkPara("• Inexistencia de espacios físicos adecuados para la práctica deportiva", true),
-          mkPara("• Ausencia de infraestructura que cumpla normas técnicas y de seguridad", true),
-          mkPara("• Insuficiente cobertura de programas deportivos y recreativos", true),
+          ...((LINEAMIENTOS.enfoque?.causasDirectas as { texto: string }[]) || []).map(c => mkPara(`• ${c.texto}`, true)),
           mkPara("Efectos Directos:", true),
-          mkPara("• Alta incidencia de sedentarismo y enfermedades crónicas en la población", true),
-          mkPara("• Limitadas oportunidades de desarrollo social y comunitario", true),
-          mkPara("• Bajo aprovechamiento del tiempo libre por parte de niños y jóvenes", true),
+          ...((LINEAMIENTOS.enfoque?.efectosDirectos as { texto: string }[]) || []).map(e => mkPara(`• ${e.texto}`, true)),
+          mkHeading("2.4 Justificación", 2),
+          mkPara((LINEAMIENTOS.enfoque?.justificacion as string) || "El proyecto responde a necesidades prioritarias identificadas en el territorio."),
 
           // 3. OBJETIVO
           mkHeading("3. OBJETIVO DEL PROYECTO", 1),
           mkHeading("3.1 Objetivo General", 2),
-          mkPara(PROYECTO.objetivo),
-          mkHeading("3.2 Objetivos Específicos", 2),
-          mkPara("• Construir una placa polideportiva con acabados de primer nivel que cumpla la normativa NSR-10 y los estándares del Ministerio del Deporte.", true),
-          mkPara("• Dotar el escenario deportivo con los elementos necesarios para la práctica de fútbol sala, baloncesto y voleibol.", true),
-          mkPara("• Garantizar la accesibilidad universal de acuerdo con la Ley 361 de 1997.", true),
+          mkPara((LINEAMIENTOS.enfoque?.objetivoGeneral as string) || PROYECTO.objetivo),
 
           // 4. DESCRIPCIÓN
           mkHeading("4. DESCRIPCIÓN DEL PROYECTO", 1),
           mkPara(
-            `El proyecto consiste en la construcción de una placa polideportiva de 44m x 24m en la Vereda El Centro del municipio de ${PROYECTO.municipio}, con capacidad para la práctica de fútbol sala, baloncesto y voleibol. Incluye tribuna techada para 150 personas, iluminación LED de alta eficiencia, cerramiento perimetral, vestieres con baterías sanitarias, zona de parqueo y paisajismo.`
+            (LINEAMIENTOS.disenos?.descripcionGeneral as string) ||
+            (LINEAMIENTOS.disenos?.alternativaSeleccionada as string) ||
+            `El proyecto ${PROYECTO.nombre} se implementará en el municipio de ${PROYECTO.municipio}, ${PROYECTO.departamento}, beneficiando a ${PROYECTO.poblacion} personas.`
           ),
 
           // 5. PRODUCTOS Y METAS
@@ -461,16 +466,15 @@ async function generarDocumentoTecnicoDocx() {
             ],
           }),
 
-          // 7. MARCO NORMATIVO
+          // 7. MARCO NORMATIVO — usa contenido IA si está disponible
           mkHeading("7. MARCO NORMATIVO", 1),
-          mkPara("El presente proyecto se enmarca en la siguiente normativa:"),
-          mkPara("• Acuerdo 012 de 2024 – Reglamento del OCAD Paz", true),
-          mkPara("• Acuerdo 015 de 2025 – Lineamientos para formulación de proyectos SGR", true),
-          mkPara("• Decreto 1082 de 2015 – Decreto Único Reglamentario del sector Administrativo de Planeación Nacional", true),
-          mkPara("• Ley 1530 de 2012 – Organización y funcionamiento del Sistema General de Regalías", true),
-          mkPara("• Resolución 1450 de 2013 – Metodología General Ajustada (MGA Web)", true),
-          mkPara("• NSR-10 – Reglamento Colombiano de Construcción Sismo Resistente", true),
-          mkPara("• Ley 181 de 1995 – Ley General del Deporte", true),
+          mkPara(
+            (LINEAMIENTOS.normativas?.analisisNormativo as string) ||
+            "El presente proyecto se enmarca en la normativa del Sistema General de Regalías."
+          ),
+          mkPara("Normativa SGR aplicable:", true),
+          ...((LINEAMIENTOS.normativas?.normasSGRSeleccionadas as string[]) || ["Acuerdo 012/2024", "Acuerdo 015/2025", "Decreto 1082/2015"])
+            .map(n => mkPara(`• ${n}`, true)),
 
           // Firma
           mkHeading("8. FIRMA Y RESPONSABLE", 1),
@@ -664,6 +668,62 @@ async function generarExpedienteZIP() {
     "· Ley 1530/2012 — Sistema General de Regalías",
   ].join("\n"));
 
+  // Generar PDF con contenido IA de todos los módulos
+  if (Object.keys(LINEAMIENTOS).length > 0) {
+    const pdfMod = new jsPDF({ format: "letter" });
+    const WM = pdfMod.internal.pageSize.getWidth();
+    pdfMod.setFillColor(6, 14, 30); pdfMod.rect(0, 0, WM, 35, "F");
+    pdfMod.setFillColor(139, 92, 246); pdfMod.rect(0, 35, WM, 1.5, "F");
+    pdfMod.setTextColor(240, 244, 255); pdfMod.setFontSize(13); pdfMod.setFont("helvetica", "bold");
+    pdfMod.text("FORMULACIÓN MGA — MÓDULOS GENERADOS CON IA", WM / 2, 15, { align: "center" });
+    pdfMod.setFontSize(8); pdfMod.setFont("helvetica", "normal"); pdfMod.setTextColor(148, 170, 200);
+    pdfMod.text(PROYECTO.nombre, WM / 2, 22, { align: "center" });
+    pdfMod.text(`${PROYECTO.municipio}, ${PROYECTO.departamento}`, WM / 2, 28, { align: "center" });
+
+    const modulosInfo: [string, string][] = [
+      ["ENFOQUE ESTRATÉGICO", ""],
+      ["Problema Central", (LINEAMIENTOS.enfoque?.problemaCentral as string) || "—"],
+      ["Objetivo General", (LINEAMIENTOS.enfoque?.objetivoGeneral as string) || "—"],
+      ["Situación Existente", (LINEAMIENTOS.enfoque?.situacionExistente as string) || "—"],
+      ["LOCALIZACIÓN", ""],
+      ["Departamento / Municipio", `${LINEAMIENTOS.localizacion?.departamento || PROYECTO.departamento} / ${LINEAMIENTOS.localizacion?.municipio || PROYECTO.municipio}`],
+      ["Descripción Ubicación", (LINEAMIENTOS.localizacion?.descripcionUbicacion as string) || "—"],
+      ["NORMATIVAS", ""],
+      ["Análisis Normativo", (LINEAMIENTOS.normativas?.analisisNormativo as string) || "—"],
+      ["VIABILIDAD", ""],
+      ["Tipo de Concepto", (LINEAMIENTOS.viabilidad?.tipoConcepto as string) || "—"],
+      ["Organismo Emisor", (LINEAMIENTOS.viabilidad?.organismoEmisor as string) || "—"],
+      ["SOSTENIBILIDAD", ""],
+      ["Esquema de Operación", (LINEAMIENTOS.sostenibilidad?.esquemaOperacion as string) || "—"],
+      ["Costo Anual Operación", (LINEAMIENTOS.sostenibilidad?.costoAnualOperacion as string) || "—"],
+      ["Conclusiones", (LINEAMIENTOS.sostenibilidad?.conclusiones as string) || "—"],
+    ];
+
+    autoTable(pdfMod, {
+      startY: 42,
+      head: [["CAMPO", "CONTENIDO FORMULADO"]],
+      body: modulosInfo,
+      headStyles: { fillColor: [6, 14, 30], textColor: 255, fontSize: 8, fontStyle: "bold" },
+      bodyStyles: { fontSize: 7.5, textColor: [20, 30, 50] },
+      columnStyles: {
+        0: { fontStyle: "bold", cellWidth: 48, fillColor: [245, 248, 255] },
+        1: { cellWidth: "auto" },
+      },
+      rowPageBreak: "auto",
+      margin: { left: 12, right: 12 },
+      didParseCell: (data) => {
+        if (data.row.cells[1]?.raw === "") {
+          Object.values(data.row.cells).forEach(cell => {
+            cell.styles.fillColor = [59, 80, 130];
+            cell.styles.textColor = [255, 255, 255];
+            cell.styles.fontStyle = "bold";
+          });
+        }
+      },
+    });
+    carpeta.file("02_Modulos_IA_MGA.pdf", pdfMod.output("arraybuffer"));
+  }
+
   const content = await zip.generateAsync({ type: "blob" });
   const url = URL.createObjectURL(content);
   const a = document.createElement("a");
@@ -746,6 +806,18 @@ export default function EntregablesPage() {
           PROYECTO.nit = proy.nit_ejecutora ?? "—";
           PROYECTO.representanteLegal = proy.representante_legal ?? "—";
           PROYECTO.avance = proy.avance ?? 0;
+        }
+        // Cargar lineamientos IA
+        const { data: lins } = await sb
+          .from("lineamientos_estado")
+          .select("modulo,datos")
+          .eq("proyecto_id", proyectoId);
+        if (lins) {
+          lins.forEach(l => {
+            if (l.modulo && l.datos) {
+              LINEAMIENTOS[l.modulo] = l.datos as Record<string, unknown>;
+            }
+          });
         }
       } catch (e) {
         console.error("Error cargando proyecto entregables:", e);
