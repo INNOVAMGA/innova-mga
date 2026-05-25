@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
       await write({ tipo: "progreso", modulo: null, mensaje: "Claude está analizando el proyecto…", pct: 5 });
 
       const response = await client.messages.create({
-        model: "claude-opus-4-5",
+        model: "claude-sonnet-4-5",
         max_tokens: 16000,
         messages: [{ role: "user", content: prompt }],
       });
