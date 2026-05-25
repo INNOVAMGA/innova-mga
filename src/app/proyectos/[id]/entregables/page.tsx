@@ -244,261 +244,544 @@ async function generarDocumentoTecnicoDocx() {
   const {
     Document, Packer, Paragraph, TextRun, HeadingLevel,
     Table, TableRow, TableCell, WidthType, BorderStyle,
-    AlignmentType, ShadingType,
+    AlignmentType, ShadingType, PageBreak,
   } = await import("docx");
 
-  const border = { style: BorderStyle.SINGLE, size: 1, color: "D0DCF0" };
-  const borders = { top: border, bottom: border, left: border, right: border };
+  // ── helpers ──────────────────────────────────────────────────
+  const borde = { style: BorderStyle.SINGLE, size: 1, color: "D0DCF0" };
+  const borders = { top: borde, bottom: borde, left: borde, right: borde };
+  const borderHeader = { top: borde, bottom: borde, left: borde, right: borde };
 
-  const mkHeading = (text: string, level: 1 | 2 | 3) =>
-    new Paragraph({
-      heading: level === 1 ? HeadingLevel.HEADING_1 : level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_3,
-      children: [new TextRun({ text, bold: true, color: level === 1 ? "1E3A5F" : "2D5F9A" })],
-      spacing: { before: 300, after: 150 },
-    });
+  const H1 = (text: string) => new Paragraph({
+    heading: HeadingLevel.HEADING_1,
+    children: [new TextRun({ text, bold: true, color: "1E3A5F" })],
+    spacing: { before: 400, after: 200 },
+  });
+  const H2 = (text: string) => new Paragraph({
+    heading: HeadingLevel.HEADING_2,
+    children: [new TextRun({ text, bold: true, color: "2D5F9A" })],
+    spacing: { before: 280, after: 120 },
+  });
+  const H3 = (text: string) => new Paragraph({
+    heading: HeadingLevel.HEADING_3,
+    children: [new TextRun({ text, bold: true, color: "4472A8" })],
+    spacing: { before: 200, after: 100 },
+  });
+  const P = (text: string, indent = false) => new Paragraph({
+    children: [new TextRun({ text: text || "—", size: 22 })],
+    spacing: { after: 160, line: 280 },
+    indent: indent ? { left: 600 } : undefined,
+  });
+  const bullet = (text: string) => new Paragraph({
+    children: [new TextRun({ text: `• ${text}`, size: 22 })],
+    spacing: { after: 100, line: 260 },
+    indent: { left: 600 },
+  });
 
-  const mkPara = (text: string, indent = false) =>
-    new Paragraph({
-      children: [new TextRun({ text, size: 22 })],
-      spacing: { after: 160, line: 276 },
-      indent: indent ? { left: 720 } : undefined,
-    });
+  // Fila de tabla clave-valor
+  const mkKV = (campo: string, valor: string, wCampo = 3000) =>
+    new TableRow({ children: [
+      new TableCell({ borders, width: { size: wCampo, type: WidthType.DXA },
+        shading: { fill: "EBF2FF", type: ShadingType.CLEAR },
+        margins: { top: 80, bottom: 80, left: 120, right: 120 },
+        children: [new Paragraph({ children: [new TextRun({ text: campo, bold: true, size: 20, color: "1E3A5F" })], spacing: { after: 0 } })],
+      }),
+      new TableCell({ borders, width: { size: 10000 - wCampo, type: WidthType.DXA },
+        margins: { top: 80, bottom: 80, left: 120, right: 120 },
+        children: [new Paragraph({ children: [new TextRun({ text: valor || "—", size: 20 })], spacing: { after: 0 } })],
+      }),
+    ]});
 
-  const mkInfoRow = (campo: string, valor: string) =>
-    new TableRow({
-      children: [
-        new TableCell({
-          borders,
-          width: { size: 3000, type: WidthType.DXA },
-          shading: { fill: "EBF2FF", type: ShadingType.CLEAR },
-          children: [new Paragraph({ children: [new TextRun({ text: campo, bold: true, size: 20, color: "1E3A5F" })], spacing: { after: 0 } })],
-        }),
-        new TableCell({
-          borders,
-          width: { size: 7000, type: WidthType.DXA },
-          children: [new Paragraph({ children: [new TextRun({ text: valor, size: 20 })], spacing: { after: 0 } })],
-        }),
-      ],
-    });
+  // Encabezado de tabla (fila azul oscuro)
+  const mkTH = (cols: string[], widths: number[]) =>
+    new TableRow({ children: cols.map((col, i) =>
+      new TableCell({ borders: borderHeader, width: { size: widths[i], type: WidthType.DXA },
+        shading: { fill: "1E3A5F", type: ShadingType.CLEAR },
+        margins: { top: 80, bottom: 80, left: 120, right: 120 },
+        children: [new Paragraph({ children: [new TextRun({ text: col, bold: true, size: 18, color: "FFFFFF" })], spacing: { after: 0 }, alignment: AlignmentType.CENTER })],
+      })
+    )});
 
+  // Fila de datos de tabla
+  const mkTR = (celdas: string[], widths: number[]) =>
+    new TableRow({ children: celdas.map((v, i) =>
+      new TableCell({ borders, width: { size: widths[i], type: WidthType.DXA },
+        margins: { top: 60, bottom: 60, left: 120, right: 120 },
+        children: [new Paragraph({ children: [new TextRun({ text: v || "—", size: 20 })], spacing: { after: 0 } })],
+      })
+    )});
+
+  // ── alias de LINEAMIENTOS por módulo nuevo ───────────────────
+  const D   = LINEAMIENTOS.diagnostico             || {};
+  const MUN = LINEAMIENTOS.municipio               || {};
+  const PP  = LINEAMIENTOS.politica_publica        || {};
+  const ML  = LINEAMIENTOS.marco_legal             || {};
+  const AP  = LINEAMIENTOS.arbol_problema          || {};
+  const POB = LINEAMIENTOS.participantes_poblacion || {};
+  const OBJ = LINEAMIENTOS.objetivos_alternativa   || {};
+  const TEC = LINEAMIENTOS.analisis_tecnico        || {};
+  const RS  = LINEAMIENTOS.riesgos_sostenibilidad  || {};
+
+  // helper safe-string
+  const s = (v: unknown, fb = "—") => (v && String(v).trim()) ? String(v) : fb;
+  const arr = <T,>(v: unknown): T[] => Array.isArray(v) ? v as T[] : [];
+
+  // ── Construcción del documento ───────────────────────────────
   const doc = new Document({
     styles: {
-      default: {
-        document: { run: { font: "Calibri", size: 22 } },
-      },
+      default: { document: { run: { font: "Calibri", size: 22 } } },
       paragraphStyles: [
-        {
-          id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
+        { id: "Heading1", name: "Heading 1", basedOn: "Normal", next: "Normal", quickFormat: true,
           run: { size: 28, bold: true, font: "Calibri", color: "1E3A5F" },
-          paragraph: { spacing: { before: 360, after: 180 }, outlineLevel: 0 },
-        },
-        {
-          id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true,
+          paragraph: { spacing: { before: 400, after: 200 }, outlineLevel: 0 } },
+        { id: "Heading2", name: "Heading 2", basedOn: "Normal", next: "Normal", quickFormat: true,
           run: { size: 24, bold: true, font: "Calibri", color: "2D5F9A" },
-          paragraph: { spacing: { before: 240, after: 120 }, outlineLevel: 1 },
-        },
+          paragraph: { spacing: { before: 280, after: 120 }, outlineLevel: 1 } },
+        { id: "Heading3", name: "Heading 3", basedOn: "Normal", next: "Normal", quickFormat: true,
+          run: { size: 22, bold: true, font: "Calibri", color: "4472A8" },
+          paragraph: { spacing: { before: 200, after: 100 }, outlineLevel: 2 } },
       ],
     },
-    sections: [
-      {
-        properties: {
-          page: {
-            size: { width: 12240, height: 15840 },
-            margin: { top: 1440, right: 1260, bottom: 1440, left: 1440 },
-          },
+    sections: [{
+      properties: {
+        page: {
+          size: { width: 12240, height: 15840 },
+          margin: { top: 1440, right: 1260, bottom: 1440, left: 1440 },
         },
-        children: [
-          // PORTADA
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 2000, after: 200 },
-            children: [
-              new TextRun({ text: "DOCUMENTO TÉCNICO DESCRIPTIVO", bold: true, size: 36, color: "1E3A5F", break: 0 }),
-            ],
-          }),
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 120 },
-            children: [new TextRun({ text: PROYECTO.nombre.toUpperCase(), bold: true, size: 26, color: "2D5F9A" })],
-          }),
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 80 },
-            children: [new TextRun({ text: `${PROYECTO.municipio} — ${PROYECTO.departamento}`, size: 22, color: "5A6B85" })],
-          }),
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 80 },
-            children: [new TextRun({ text: `BPIN: ${PROYECTO.bpin}`, size: 20, color: "7A8EA8" })],
-          }),
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 80 },
-            children: [new TextRun({ text: `${PROYECTO.entidadEjecutora}`, size: 20 })],
-          }),
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 2880 },
-            children: [new TextRun({ text: PROYECTO.fecha, size: 20, color: "7A8EA8" })],
-          }),
-
-          // 1. IDENTIFICACIÓN
-          mkHeading("1. IDENTIFICACIÓN DEL PROYECTO", 1),
-          new Table({
-            width: { size: 10000, type: WidthType.DXA },
-            columnWidths: [3000, 7000],
-            rows: [
-              mkInfoRow("Nombre del Proyecto",  PROYECTO.nombre),
-              mkInfoRow("BPIN",                 PROYECTO.bpin),
-              mkInfoRow("Sector",               PROYECTO.sector),
-              mkInfoRow("Programa",             PROYECTO.programa),
-              mkInfoRow("Entidad Ejecutora",    PROYECTO.entidadEjecutora),
-              mkInfoRow("NIT",                  PROYECTO.nit),
-              mkInfoRow("Representante Legal",  PROYECTO.representanteLegal),
-              mkInfoRow("Departamento",         PROYECTO.departamento),
-              mkInfoRow("Municipio",            PROYECTO.municipio),
-              mkInfoRow("Localización",         PROYECTO.localizacion),
-              mkInfoRow("Presupuesto Total",    `$ ${PROYECTO.presupuesto}`),
-              mkInfoRow("Población Beneficiada",`${PROYECTO.poblacion} personas`),
-            ],
-          }),
-
-          // 2. DIAGNÓSTICO — usa contenido IA si está disponible
-          mkHeading("2. DIAGNÓSTICO Y PROBLEMA", 1),
-          mkHeading("2.1 Descripción de la Situación Actual", 2),
-          mkPara(
-            (LINEAMIENTOS.enfoque?.situacionExistente as string) ||
-            `El municipio de ${PROYECTO.municipio}, departamento de ${PROYECTO.departamento}, presenta necesidades de inversión que afectan la calidad de vida de sus ${PROYECTO.poblacion} habitantes.`
-          ),
-          mkHeading("2.2 Magnitud del Problema", 2),
-          mkPara((LINEAMIENTOS.enfoque?.magnitudProblema as string) || "Ver diagnóstico técnico del proyecto."),
-          mkHeading("2.3 Identificación del Problema", 2),
-          mkPara(`Problema Central: ${(LINEAMIENTOS.enfoque?.problemaCentral as string) || PROYECTO.nombre}`),
-          mkPara("Causas Directas:", true),
-          ...((LINEAMIENTOS.enfoque?.causasDirectas as { texto: string }[]) || []).map(c => mkPara(`• ${c.texto}`, true)),
-          mkPara("Efectos Directos:", true),
-          ...((LINEAMIENTOS.enfoque?.efectosDirectos as { texto: string }[]) || []).map(e => mkPara(`• ${e.texto}`, true)),
-          mkHeading("2.4 Justificación", 2),
-          mkPara((LINEAMIENTOS.enfoque?.justificacion as string) || "El proyecto responde a necesidades prioritarias identificadas en el territorio."),
-
-          // 3. OBJETIVO
-          mkHeading("3. OBJETIVO DEL PROYECTO", 1),
-          mkHeading("3.1 Objetivo General", 2),
-          mkPara((LINEAMIENTOS.enfoque?.objetivoGeneral as string) || PROYECTO.objetivo),
-
-          // 4. DESCRIPCIÓN
-          mkHeading("4. DESCRIPCIÓN DEL PROYECTO", 1),
-          mkPara(
-            (LINEAMIENTOS.disenos?.descripcionGeneral as string) ||
-            (LINEAMIENTOS.disenos?.alternativaSeleccionada as string) ||
-            `El proyecto ${PROYECTO.nombre} se implementará en el municipio de ${PROYECTO.municipio}, ${PROYECTO.departamento}, beneficiando a ${PROYECTO.poblacion} personas.`
-          ),
-
-          // 5. PRODUCTOS Y METAS
-          mkHeading("5. PRODUCTOS Y METAS", 1),
-          new Table({
-            width: { size: 10000, type: WidthType.DXA },
-            columnWidths: [2000, 4000, 2000, 2000],
-            rows: [
-              new TableRow({
-                children: [
-                  new TableCell({
-                    borders,
-                    shading: { fill: "1E3A5F", type: ShadingType.CLEAR },
-                    children: [new Paragraph({ children: [new TextRun({ text: "CÓDIGO", bold: true, size: 18, color: "FFFFFF" })], spacing: { after: 0 } })],
-                  }),
-                  new TableCell({
-                    borders,
-                    shading: { fill: "1E3A5F", type: ShadingType.CLEAR },
-                    children: [new Paragraph({ children: [new TextRun({ text: "PRODUCTO", bold: true, size: 18, color: "FFFFFF" })], spacing: { after: 0 } })],
-                  }),
-                  new TableCell({
-                    borders,
-                    shading: { fill: "1E3A5F", type: ShadingType.CLEAR },
-                    children: [new Paragraph({ children: [new TextRun({ text: "META", bold: true, size: 18, color: "FFFFFF" })], spacing: { after: 0 } })],
-                  }),
-                  new TableCell({
-                    borders,
-                    shading: { fill: "1E3A5F", type: ShadingType.CLEAR },
-                    children: [new Paragraph({ children: [new TextRun({ text: "UNIDAD", bold: true, size: 18, color: "FFFFFF" })], spacing: { after: 0 } })],
-                  }),
-                ],
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ borders, children: [new Paragraph({ children: [new TextRun({ text: "3307", size: 20 })], spacing: { after: 0 } })] }),
-                  new TableCell({ borders, children: [new Paragraph({ children: [new TextRun({ text: PROYECTO.producto, size: 20 })], spacing: { after: 0 } })] }),
-                  new TableCell({ borders, children: [new Paragraph({ children: [new TextRun({ text: PROYECTO.meta, size: 20 })], spacing: { after: 0 } })] }),
-                  new TableCell({ borders, children: [new Paragraph({ children: [new TextRun({ text: PROYECTO.unidad, size: 20 })], spacing: { after: 0 } })] }),
-                ],
-              }),
-            ],
-          }),
-
-          // 6. PRESUPUESTO
-          mkHeading("6. ESTRUCTURA PRESUPUESTAL", 1),
-          new Table({
-            width: { size: 10000, type: WidthType.DXA },
-            columnWidths: [1500, 6000, 2500],
-            rows: [
-              new TableRow({
-                children: [
-                  new TableCell({ borders, shading: { fill: "2D5F9A", type: ShadingType.CLEAR }, children: [new Paragraph({ children: [new TextRun({ text: "CÓDIGO", bold: true, size: 18, color: "FFFFFF" })], spacing: { after: 0 } })] }),
-                  new TableCell({ borders, shading: { fill: "2D5F9A", type: ShadingType.CLEAR }, children: [new Paragraph({ children: [new TextRun({ text: "COMPONENTE", bold: true, size: 18, color: "FFFFFF" })], spacing: { after: 0 } })] }),
-                  new TableCell({ borders, shading: { fill: "2D5F9A", type: ShadingType.CLEAR }, children: [new Paragraph({ children: [new TextRun({ text: "VALOR (COP)", bold: true, size: 18, color: "FFFFFF" })], spacing: { after: 0 }, alignment: AlignmentType.RIGHT })] }),
-                ],
-              }),
-              ...PROYECTO.componentes.map(c =>
-                new TableRow({
-                  children: [
-                    new TableCell({ borders, children: [new Paragraph({ children: [new TextRun({ text: c.codigo, size: 20 })], spacing: { after: 0 } })] }),
-                    new TableCell({ borders, children: [new Paragraph({ children: [new TextRun({ text: c.nombre, size: 20 })], spacing: { after: 0 } })] }),
-                    new TableCell({ borders, children: [new Paragraph({ children: [new TextRun({ text: `$ ${c.total}`, size: 20 })], alignment: AlignmentType.RIGHT, spacing: { after: 0 } })] }),
-                  ],
-                })
-              ),
-              new TableRow({
-                children: [
-                  new TableCell({ borders, shading: { fill: "1E3A5F", type: ShadingType.CLEAR }, columnSpan: 2, children: [new Paragraph({ children: [new TextRun({ text: "TOTAL PRESUPUESTO", bold: true, size: 20, color: "FFFFFF" })], spacing: { after: 0 } })] }),
-                  new TableCell({ borders, shading: { fill: "1E3A5F", type: ShadingType.CLEAR }, children: [new Paragraph({ children: [new TextRun({ text: `$ ${PROYECTO.presupuesto}`, bold: true, size: 20, color: "FFFFFF" })], alignment: AlignmentType.RIGHT, spacing: { after: 0 } })] }),
-                ],
-              }),
-            ],
-          }),
-
-          // 7. MARCO NORMATIVO — usa contenido IA si está disponible
-          mkHeading("7. MARCO NORMATIVO", 1),
-          mkPara(
-            (LINEAMIENTOS.normativas?.analisisNormativo as string) ||
-            "El presente proyecto se enmarca en la normativa del Sistema General de Regalías."
-          ),
-          mkPara("Normativa SGR aplicable:", true),
-          ...((LINEAMIENTOS.normativas?.normasSGRSeleccionadas as string[]) || ["Acuerdo 012/2024", "Acuerdo 015/2025", "Decreto 1082/2015"])
-            .map(n => mkPara(`• ${n}`, true)),
-
-          // Firma
-          mkHeading("8. FIRMA Y RESPONSABLE", 1),
-          new Paragraph({
-            spacing: { before: 480 },
-            children: [new TextRun({ text: "_".repeat(50), size: 22 })],
-          }),
-          new Paragraph({
-            spacing: { after: 60 },
-            children: [new TextRun({ text: PROYECTO.representanteLegal, bold: true, size: 22 })],
-          }),
-          new Paragraph({
-            children: [new TextRun({ text: "Representante Legal", size: 20, color: "5A6B85" })],
-          }),
-          new Paragraph({
-            children: [new TextRun({ text: PROYECTO.entidadEjecutora, size: 20, color: "5A6B85" })],
-          }),
-          new Paragraph({
-            spacing: { before: 120 },
-            children: [new TextRun({ text: `NIT: ${PROYECTO.nit}`, size: 20, color: "5A6B85" })],
-          }),
-        ],
       },
-    ],
+      children: [
+
+        /* ══════════ PORTADA ══════════════════════════════════════ */
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 1800, after: 200 },
+          children: [new TextRun({ text: PROYECTO.municipio.toUpperCase(), bold: true, size: 40, color: "1E3A5F" })] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 360 },
+          children: [new TextRun({ text: "DOCUMENTO TÉCNICO DEL PROYECTO", bold: true, size: 32, color: "2D5F9A" })] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 },
+          children: [new TextRun({ text: PROYECTO.nombre.toUpperCase(), bold: true, size: 26, color: "1E3A5F" })] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 },
+          children: [new TextRun({ text: PROYECTO.representanteLegal, size: 22 })] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 100 },
+          children: [new TextRun({ text: PROYECTO.entidadEjecutora, size: 22 })] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 2880 },
+          children: [new TextRun({ text: PROYECTO.fecha, size: 22, color: "7A8EA8" })] }),
+
+        /* ══════════ INFORMACIÓN GENERAL (ficha) ════════════════ */
+        H1("INFORMACIÓN GENERAL DEL PROYECTO"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [3000, 7000],
+          rows: [
+            mkKV("Nombre del Proyecto",    PROYECTO.nombre),
+            mkKV("Objetivo General",       PROYECTO.objetivo),
+            mkKV("Población beneficiada",  `${PROYECTO.poblacion} personas`),
+            mkKV("Valor del Proyecto",     `$ ${PROYECTO.presupuesto}`),
+            mkKV("Tipo de fuente",         "SGR — Sistema General de Regalías"),
+            mkKV("Región",                 "Colombia"),
+            mkKV("Departamento",           PROYECTO.departamento),
+            mkKV("Municipio",              PROYECTO.municipio),
+            mkKV("Zona",                   s(POB.poblacionAfectada && (POB.poblacionAfectada as Record<string,unknown>).zona, "Por definir")),
+            mkKV("Programa",               PROYECTO.programa),
+            mkKV("Sector",                 PROYECTO.sector),
+            mkKV("Entidad Ejecutora",      PROYECTO.entidadEjecutora),
+            mkKV("Representante Legal",    PROYECTO.representanteLegal),
+          ],
+        }),
+
+        /* ══════════ 1. NOMBRE DEL PROYECTO ════════════════════ */
+        H1("1. NOMBRE DEL PROYECTO"),
+        P(PROYECTO.nombre),
+
+        /* ══════════ 2. SECTOR ══════════════════════════════════ */
+        H1("2. SECTOR"),
+        P(s(D.sector, PROYECTO.sector)),
+
+        /* ══════════ 3. DIAGNÓSTICO ══════════════════════════════ */
+        H1("3. DIAGNÓSTICO"),
+        P(s(AP.situacionExistente, `El municipio de ${PROYECTO.municipio}, ${PROYECTO.departamento}, enfrenta condiciones que afectan la calidad de vida de sus habitantes, identificadas a través del diagnóstico técnico del presente proyecto.`)),
+
+        /* ══════════ 4. JUSTIFICACIÓN / ANTECEDENTES ════════════ */
+        H1("4. JUSTIFICACIÓN / ANTECEDENTES"),
+        H2("4.1. Justificación"),
+        P(s(D.justificacion, `El proyecto ${PROYECTO.nombre} responde a necesidades prioritarias de la población de ${PROYECTO.municipio}, ${PROYECTO.departamento}.`)),
+
+        H2("4.2. Antecedentes"),
+        H3("Internacional"),
+        P(s((D.antecedentes as Record<string,unknown>)?.internacional)),
+        H3("Nacional"),
+        P(s((D.antecedentes as Record<string,unknown>)?.nacional)),
+        H3("Departamental"),
+        P(s((D.antecedentes as Record<string,unknown>)?.departamental)),
+        H3("Municipal"),
+        P(s((D.antecedentes as Record<string,unknown>)?.municipal)),
+
+        /* ══════════ 5. ALCANCES DEL PROYECTO ═══════════════════ */
+        H1("5. ALCANCES DEL PROYECTO"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [2500, 3750, 3750],
+          rows: [
+            mkTH(["CATEGORÍA", "SITUACIÓN ACTUAL", "SITUACIÓN ESPERADA CON EL PROYECTO"], [2500, 3750, 3750]),
+            ...arr<{ categoria: string; situacionActual: string; situacionEsperada: string }>(D.alcances).map(a =>
+              mkTR([a.categoria, a.situacionActual, a.situacionEsperada], [2500, 3750, 3750])
+            ),
+          ],
+        }),
+
+        /* ══════════ 6. GENERALIDADES DEL MUNICIPIO ════════════ */
+        H1("6. GENERALIDADES DEL MUNICIPIO"),
+        P(s(MUN.generalidades, `${PROYECTO.municipio} es un municipio del departamento de ${PROYECTO.departamento}, Colombia.`)),
+
+        /* ══════════ 7. DIVISIÓN POLÍTICA – ADMINISTRATIVA ═════ */
+        H1("7. División Política – Administrativa"),
+        P(s(MUN.divisionPolitica)),
+
+        /* ══════════ 8. CARACTERÍSTICAS FÍSICAS ═════════════════ */
+        H1("8. Características Físicas del Municipio"),
+        P(s(MUN.caracteristicasFisicas)),
+
+        /* ══════════ 9. CONTRIBUCIÓN A LA POLÍTICA PÚBLICA ════ */
+        H1("9. CONTRIBUCIÓN A LA POLÍTICA PÚBLICA"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [3000, 7000],
+          rows: [
+            mkKV("01 — Plan Nacional de Desarrollo", s((PP.pnd as Record<string,unknown>)?.programa)),
+            mkKV("Transformación PND",               s((PP.pnd as Record<string,unknown>)?.transformacion)),
+            mkKV("Pilar PND",                        s((PP.pnd as Record<string,unknown>)?.pilar)),
+            mkKV("Catalizador PND",                  s((PP.pnd as Record<string,unknown>)?.catalizador)),
+            mkKV("Componente PND",                   s((PP.pnd as Record<string,unknown>)?.componente)),
+            mkKV("02 — Plan de Desarrollo Departamental", s((PP.pdd as Record<string,unknown>)?.nombre)),
+            mkKV("Estrategia PDD",                   s((PP.pdd as Record<string,unknown>)?.estrategia)),
+            mkKV("Programa PDD",                     s((PP.pdd as Record<string,unknown>)?.programa)),
+            mkKV("03 — Plan de Desarrollo Municipal", s((PP.pdm as Record<string,unknown>)?.nombre)),
+            mkKV("Estrategia PDM",                   s((PP.pdm as Record<string,unknown>)?.estrategia)),
+            mkKV("Programa PDM",                     s((PP.pdm as Record<string,unknown>)?.programa)),
+            mkKV("Metas PDM",                        s((PP.pdm as Record<string,unknown>)?.metas)),
+          ],
+        }),
+        H2("04 — Objetivos de Desarrollo Sostenible"),
+        ...arr<{ numero: number; nombre: string; meta: string }>(PP.ods).map(o =>
+          P(`ODS ${o.numero} — ${o.nombre}: ${o.meta}`, true)
+        ),
+
+        /* ══════════ 10. MARCO LEGAL ════════════════════════════ */
+        H1("10. MARCO LEGAL"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [2200, 2800, 2800, 2200],
+          rows: [
+            mkTH(["NORMA", "TEMA QUE REGULA", "APLICACIÓN AL PROYECTO", "EVIDENCIA REQUERIDA"], [2200, 2800, 2800, 2200]),
+            ...arr<{ norma: string; tema: string; aplicacion: string; evidencia: string }>(ML.normas).map(n =>
+              mkTR([n.norma, n.tema, n.aplicacion, n.evidencia], [2200, 2800, 2800, 2200])
+            ),
+          ],
+        }),
+
+        /* ══════════ 11. ÁRBOL DE PROBLEMA ═════════════════════ */
+        H1("11. ÁRBOL DE PROBLEMA"),
+        H2("11.1. Análisis de causas y efectos"),
+        H3("Efectos Indirectos"),
+        ...arr<{ texto: string }>(AP.efectosIndirectos).map(e => bullet(e.texto)),
+        H3("Efectos Directos"),
+        ...arr<{ texto: string }>(AP.efectosDirectos).map(e => bullet(e.texto)),
+        H3("PROBLEMA CENTRAL"),
+        P(s(AP.problemaCentral, PROYECTO.nombre), true),
+        H3("Causas Directas"),
+        ...arr<{ texto: string }>(AP.causasDirectas).map(c => bullet(c.texto)),
+        H3("Causas Indirectas"),
+        ...arr<{ texto: string }>(AP.causasIndirectas).map(c => bullet(c.texto)),
+
+        /* ══════════ 12. IDENTIFICACIÓN Y DESCRIPCIÓN DEL PROBLEMA */
+        H1("12. IDENTIFICACIÓN Y DESCRIPCIÓN DEL PROBLEMA"),
+        H2("12.1. Problema Central"),
+        P(s(AP.problemaCentral, PROYECTO.nombre)),
+        H2("12.2. Descripción de la situación existente con respecto al problema"),
+        P(s(AP.situacionExistente, `El municipio de ${PROYECTO.municipio} presenta condiciones problemáticas que afectan a ${PROYECTO.poblacion} habitantes.`)),
+        H2("12.3. Magnitud actual del problema e indicadores de referencia"),
+        P(s(AP.magnitudProblema)),
+        ...arr<{ nombre: string; unidad: string; lineaBase: string; fuente: string; año: string }>(AP.indicadores).map(ind =>
+          P(`• ${ind.nombre}: ${ind.lineaBase} ${ind.unidad} — Fuente: ${ind.fuente} (${ind.año})`, true)
+        ),
+
+        /* ══════════ 13. IDENTIFICACIÓN Y ANÁLISIS DE PARTICIPANTES */
+        H1("13. IDENTIFICACIÓN Y ANÁLISIS DE PARTICIPANTES"),
+        H2("13.1. Análisis de los Participantes"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [1800, 2500, 1700, 2200, 1800],
+          rows: [
+            mkTH(["ACTOR", "ENTIDAD", "POSICIÓN", "INTERÉS / EXPECTATIVAS", "CONTRIBUCIÓN"], [1800, 2500, 1700, 2200, 1800]),
+            ...arr<{ actor: string; entidad: string; posicion: string; interes: string; contribucion: string }>(POB.participantes).map(p =>
+              mkTR([p.actor, p.entidad, p.posicion, p.interes, p.contribucion], [1800, 2500, 1700, 2200, 1800])
+            ),
+          ],
+        }),
+        P(s(POB.analisisParticipantes)),
+
+        /* ══════════ 14. POBLACIÓN AFECTADA Y OBJETIVO ══════════ */
+        H1("14. POBLACIÓN AFECTADA Y OBJETIVO"),
+        H2("14.1. Población afectada por el problema"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [3000, 7000],
+          rows: [
+            mkKV("Número de personas afectadas", s((POB.poblacionAfectada as Record<string,unknown>)?.total?.toString())),
+            mkKV("Fuente de la información",      s((POB.poblacionAfectada as Record<string,unknown>)?.fuente, "DANE 2024")),
+            mkKV("Zona",                          s((POB.poblacionAfectada as Record<string,unknown>)?.zona, "Por definir")),
+            mkKV("Centro poblado",                s((POB.poblacionAfectada as Record<string,unknown>)?.centroPoblado)),
+            mkKV("Departamento",                  PROYECTO.departamento),
+            mkKV("Municipio",                     PROYECTO.municipio),
+          ],
+        }),
+        H2("14.2. Población Objetivo"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [3000, 7000],
+          rows: [
+            mkKV("Número de personas objetivo",  s((POB.poblacionObjetivo as Record<string,unknown>)?.total?.toString())),
+            mkKV("Fuente",                       s((POB.poblacionObjetivo as Record<string,unknown>)?.fuente, "DANE 2024")),
+            mkKV("Descripción",                  s((POB.poblacionObjetivo as Record<string,unknown>)?.descripcion)),
+          ],
+        }),
+        ...(POB.desagregacion ? [
+          H3("Desagregación demográfica"),
+          new Table({
+            width: { size: 10000, type: WidthType.DXA }, columnWidths: [5000, 5000],
+            rows: [
+              mkTH(["DESCRIPCIÓN DE LA POBLACIÓN", "NÚMERO DE PERSONAS"], [5000, 5000]),
+              ...Object.entries(POB.desagregacion as Record<string, string>).map(([k, v]) =>
+                mkTR([k.replace(/([A-Z])/g, " $1").replace(/^./, c => c.toUpperCase()), String(v)], [5000, 5000])
+              ),
+            ],
+          }),
+        ] : []),
+
+        /* ══════════ 15. RELACIONES ENTRE CAUSAS Y OBJETIVOS ═══ */
+        H1("15. RELACIONES ENTRE LAS CAUSAS Y LOS OBJETIVOS"),
+        H2("15.1. Árbol de objetivo (Análisis de Fines y Medios)"),
+        P(s(OBJ.arbolObjetivoDescripcion, "El árbol de objetivos transforma el problema central en objetivo general y las causas directas en los medios de intervención.")),
+
+        /* ══════════ 16. OBJETIVOS ══════════════════════════════ */
+        H1("16. OBJETIVOS"),
+        H2("16.1. Objetivo General — Propósito"),
+        P(s(OBJ.objetivoGeneral, PROYECTO.objetivo)),
+        H2("16.2. Indicadores de seguimiento para medir el objetivo general"),
+        ...(OBJ.indicadorObjetivo ? [
+          new Table({
+            width: { size: 10000, type: WidthType.DXA }, columnWidths: [2500, 2500, 2500, 2500],
+            rows: [
+              mkTH(["INDICADOR", "MEDIDO A TRAVÉS DE", "META", "FUENTE DE VERIFICACIÓN"], [2500, 2500, 2500, 2500]),
+              mkTR([
+                s((OBJ.indicadorObjetivo as Record<string,unknown>)?.indicador),
+                s((OBJ.indicadorObjetivo as Record<string,unknown>)?.medidoA),
+                s((OBJ.indicadorObjetivo as Record<string,unknown>)?.meta),
+                s((OBJ.indicadorObjetivo as Record<string,unknown>)?.fuenteVerificacion),
+              ], [2500, 2500, 2500, 2500]),
+            ],
+          }),
+        ] : []),
+        H2("16.3. Objetivos Específicos"),
+        ...arr<{ numero: number; texto: string; causaDirecta: string; causasIndirectas: string[] }>(OBJ.objetivosEspecificos).map(oe => [
+          P(`Objetivo Específico ${oe.numero}: ${oe.texto}`),
+          P(`Causa directa: ${oe.causaDirecta}`, true),
+          ...oe.causasIndirectas.map(ci => P(`• Causa indirecta: ${ci}`, true)),
+        ]).flat(),
+
+        /* ══════════ 17. ALTERNATIVA DE SOLUCIÓN ════════════════ */
+        H1("17. ALTERNATIVA DE SOLUCIÓN"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [2000, 4500, 3500],
+          rows: [
+            mkTH(["ALTERNATIVA", "DESCRIPCIÓN", "ESTADO / EVALUACIÓN"], [2000, 4500, 3500]),
+            ...arr<{ nombre: string; descripcion: string; estado: string; evaluacion?: string }>(OBJ.alternativas).map(a =>
+              mkTR([a.nombre, a.descripcion, `${a.estado}${a.evaluacion ? ` — ${a.evaluacion}` : ""}`], [2000, 4500, 3500])
+            ),
+          ],
+        }),
+
+        /* ══════════ 18. ESTUDIO DE NECESIDADES ═════════════════ */
+        H1("18. ESTUDIO DE NECESIDADES"),
+        H2("Justificación de la demanda"),
+        P(s(OBJ.estudioNecesidades)),
+        H2("Bien o servicio a entregar"),
+        P(s(OBJ.bienServicio)),
+        ...(arr<{ año: number; oferta: number; demanda: number; deficit: number }>(OBJ.demandaOferta).length > 0 ? [
+          H2("Demanda, Oferta y Déficit"),
+          new Table({
+            width: { size: 10000, type: WidthType.DXA }, columnWidths: [2500, 2500, 2500, 2500],
+            rows: [
+              mkTH(["AÑO", "OFERTA", "DEMANDA", "DÉFICIT"], [2500, 2500, 2500, 2500]),
+              ...arr<{ año: number; oferta: number; demanda: number; deficit: number }>(OBJ.demandaOferta).map(r =>
+                mkTR([String(r.año), String(r.oferta), String(r.demanda), String(r.deficit)], [2500, 2500, 2500, 2500])
+              ),
+            ],
+          }),
+        ] : []),
+
+        /* ══════════ 19. ANÁLISIS TÉCNICO DE LA ALTERNATIVA ════ */
+        H1("19. ANÁLISIS TÉCNICO DE LA ALTERNATIVA"),
+        P(s(TEC.analisisTecnicoResumido, `El proyecto ${PROYECTO.nombre} implementará en ${PROYECTO.municipio} los componentes técnicos necesarios para resolver el problema identificado.`)),
+
+        /* ══════════ 20. DESARROLLO METODOLÓGICO ════════════════ */
+        H1("20. DESARROLLO METODOLÓGICO DE LA ALTERNATIVA"),
+        ...arr<{
+          numero: number; nombre: string; descripcion: string; causaDirecta: string;
+          actividades: { codigo: string; descripcion: string; cantidad: string; unidad: string; productoVerificable: string; medioVerificacion: string }[];
+        }>(TEC.componentesProyecto).map(comp => [
+          H2(`Componente ${comp.numero}. ${comp.nombre}`),
+          P(comp.descripcion),
+          P(`Causa directa que atiende: ${comp.causaDirecta}`, true),
+          H3("Actividades del componente"),
+          new Table({
+            width: { size: 10000, type: WidthType.DXA }, columnWidths: [1000, 3000, 1200, 1200, 2000, 1600],
+            rows: [
+              mkTH(["CÓDIGO", "DESCRIPCIÓN TÉCNICA Y METODOLÓGICA", "CANTIDAD", "UNIDAD", "PRODUCTO VERIFICABLE", "MEDIO DE VERIFICACIÓN"], [1000, 3000, 1200, 1200, 2000, 1600]),
+              ...comp.actividades.map(act =>
+                mkTR([act.codigo, act.descripcion, act.cantidad, act.unidad, act.productoVerificable, act.medioVerificacion], [1000, 3000, 1200, 1200, 2000, 1600])
+              ),
+            ],
+          }),
+        ]).flat(),
+
+        /* ══════════ 21. ESPECIFICACIONES TÉCNICAS ═════════════ */
+        H1("21. ESPECIFICACIONES TÉCNICAS"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [1200, 2800, 1200, 4800],
+          rows: [
+            mkTH(["CÓDIGO", "DESCRIPCIÓN", "UNIDAD", "ESPECIFICACIONES TÉCNICAS MÍNIMAS"], [1200, 2800, 1200, 4800]),
+            ...arr<{ codigoItem: string; descripcion: string; unidad: string; especificaciones: string }>(TEC.especificacionesTecnicas).map(e =>
+              mkTR([e.codigoItem, e.descripcion, e.unidad, e.especificaciones], [1200, 2800, 1200, 4800])
+            ),
+          ],
+        }),
+
+        /* ══════════ 22. LOCALIZACIÓN ═══════════════════════════ */
+        H1("22. ANÁLISIS DE MACRO Y MICRO LOCALIZACIÓN"),
+        H2("Macro Localización"),
+        P(s(MUN.macroLocalizacion, `Región Colombia — ${PROYECTO.departamento} — ${PROYECTO.municipio}.`)),
+        H2("Micro Localización"),
+        P(s(MUN.microLocalizacion, `Sitio específico de intervención en ${PROYECTO.municipio}, ${PROYECTO.departamento}.`)),
+
+        /* ══════════ 23. ANÁLISIS DE RIESGOS ════════════════════ */
+        H1("23. ANÁLISIS DE RIESGOS Y MATRIZ DE RIESGO"),
+        H2("Riesgos Asociados al Propósito (Objetivo General)"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [1800, 2500, 1600, 1400, 1600, 1100],
+          rows: [
+            mkTH(["TIPO", "DESCRIPCIÓN DEL RIESGO", "PROBABILIDAD", "IMPACTO", "EFECTOS", "MITIGACIÓN"], [1800, 2500, 1600, 1400, 1600, 1100]),
+            ...arr<{ tipo: string; descripcion: string; probabilidad: string; impacto: string; efectos: string; mitigacion: string }>(RS.riesgosPropósito).map(r =>
+              mkTR([r.tipo, r.descripcion, r.probabilidad, r.impacto, r.efectos, r.mitigacion], [1800, 2500, 1600, 1400, 1600, 1100])
+            ),
+          ],
+        }),
+        H2("Riesgos Asociados al Componente (Producto Principal)"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [1800, 2500, 1600, 1400, 1600, 1100],
+          rows: [
+            mkTH(["TIPO", "DESCRIPCIÓN DEL RIESGO", "PROBABILIDAD", "IMPACTO", "EFECTOS", "MITIGACIÓN"], [1800, 2500, 1600, 1400, 1600, 1100]),
+            ...arr<{ tipo: string; descripcion: string; probabilidad: string; impacto: string; efectos: string; mitigacion: string }>(RS.riesgosComponente).map(r =>
+              mkTR([r.tipo, r.descripcion, r.probabilidad, r.impacto, r.efectos, r.mitigacion], [1800, 2500, 1600, 1400, 1600, 1100])
+            ),
+          ],
+        }),
+        H2("Riesgos Asociados a las Actividades"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [1800, 2500, 1600, 1400, 1600, 1100],
+          rows: [
+            mkTH(["TIPO", "DESCRIPCIÓN DEL RIESGO", "PROBABILIDAD", "IMPACTO", "EFECTOS", "MITIGACIÓN"], [1800, 2500, 1600, 1400, 1600, 1100]),
+            ...arr<{ tipo: string; descripcion: string; probabilidad: string; impacto: string; efectos: string; mitigacion: string }>(RS.riesgosActividades).map(r =>
+              mkTR([r.tipo, r.descripcion, r.probabilidad, r.impacto, r.efectos, r.mitigacion], [1800, 2500, 1600, 1400, 1600, 1100])
+            ),
+          ],
+        }),
+        H2("Factores Analizados"),
+        ...arr<string>(RS.factoresAnalizados).map(f => bullet(f)),
+
+        /* ══════════ 24. ESTUDIOS Y DISEÑOS ═════════════════════ */
+        H1("24. ESTUDIOS Y DISEÑOS REQUERIDOS"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [2500, 4000, 1500, 2000],
+          rows: [
+            mkTH(["TIPO DE ESTUDIO", "DESCRIPCIÓN", "REQUERIDO", "REFERENCIA NORMATIVA"], [2500, 4000, 1500, 2000]),
+            ...arr<{ tipo: string; descripcion: string; requerido: boolean; referencia: string }>(RS.estudiosRequeridos).map(e =>
+              mkTR([e.tipo, e.descripcion, e.requerido ? "SI" : "NO", e.referencia], [2500, 4000, 1500, 2000])
+            ),
+          ],
+        }),
+        H2("Evaluaciones a realizar"),
+        ...(RS.evaluaciones ? [
+          P(`Rentabilidad (VPN/TIR/B-C): ${(RS.evaluaciones as Record<string,unknown>).rentabilidad ? "SÍ aplica" : "NO aplica"}`),
+          P(`Costo-Eficacia y Costo Mínimo: ${(RS.evaluaciones as Record<string,unknown>).costoEficacia ? "SÍ aplica" : "NO aplica"}`),
+          P(`Evaluación Multicriterio: ${(RS.evaluaciones as Record<string,unknown>).multicriterio ? "SÍ aplica" : "NO aplica"}`),
+          P(s((RS.evaluaciones as Record<string,unknown>).justificacion), true),
+        ] : []),
+
+        /* ══════════ 25. INGRESOS Y BENEFICIOS ══════════════════ */
+        H1("25. INGRESOS Y BENEFICIOS"),
+        ...arr<{ nombre: string; tipo: string; medidoA: string; rpc: number; justificacion: string }>(RS.ingresosBeneficios).map(ib => [
+          H2(`${ib.tipo}: ${ib.nombre}`),
+          new Table({
+            width: { size: 10000, type: WidthType.DXA }, columnWidths: [3000, 7000],
+            rows: [
+              mkKV("Nombre",          ib.nombre),
+              mkKV("Tipo",            ib.tipo),
+              mkKV("Medido a través", ib.medidoA),
+              mkKV("RPC",             String(ib.rpc)),
+              mkKV("Justificación",   ib.justificacion),
+            ],
+          }),
+        ]).flat(),
+
+        /* ══════════ 26. PRESUPUESTO ════════════════════════════ */
+        H1("26. INVERSIÓN Y PRESUPUESTO"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [1200, 6300, 2500],
+          rows: [
+            mkTH(["CÓDIGO", "COMPONENTE", "VALOR (COP)"], [1200, 6300, 2500]),
+            ...PROYECTO.componentes.map(c => mkTR([c.codigo, c.nombre, `$ ${c.total}`], [1200, 6300, 2500])),
+            new TableRow({ children: [
+              new TableCell({ borders, shading: { fill: "1E3A5F", type: ShadingType.CLEAR }, columnSpan: 2,
+                margins: { top: 80, bottom: 80, left: 120, right: 120 },
+                children: [new Paragraph({ children: [new TextRun({ text: "TOTAL PRESUPUESTO", bold: true, size: 20, color: "FFFFFF" })], spacing: { after: 0 } })] }),
+              new TableCell({ borders, shading: { fill: "1E3A5F", type: ShadingType.CLEAR },
+                margins: { top: 80, bottom: 80, left: 120, right: 120 },
+                children: [new Paragraph({ children: [new TextRun({ text: `$ ${PROYECTO.presupuesto}`, bold: true, size: 20, color: "FFFFFF" })], alignment: AlignmentType.RIGHT, spacing: { after: 0 } })] }),
+            ]}),
+          ],
+        }),
+
+        /* ══════════ 27. FUENTES DE FINANCIACIÓN ════════════════ */
+        H1("27. FUENTES DE FINANCIACIÓN"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [2000, 4000, 2500, 1500],
+          rows: [
+            mkTH(["TIPO DE ENTIDAD", "NOMBRE DE LA ENTIDAD", "TIPO DE RECURSO", "VALOR"], [2000, 4000, 2500, 1500]),
+            ...PROYECTO.fuentes.map(f => mkTR(["Entidad Territorial", f.nombre, "SGR", `$ ${f.monto}`], [2000, 4000, 2500, 1500])),
+          ],
+        }),
+
+        /* ══════════ 28. SOSTENIBILIDAD TÉCNICA ═════════════════ */
+        H1("28. SOSTENIBILIDAD TÉCNICA DEL PROYECTO"),
+        H2("Esquema de Operación y Mantenimiento"),
+        new Table({
+          width: { size: 10000, type: WidthType.DXA }, columnWidths: [3000, 7000],
+          rows: [
+            mkKV("Entidad Operadora",    s((RS.sostenibilidad as Record<string,unknown>)?.entidadOperadora, PROYECTO.entidadEjecutora)),
+            mkKV("Esquema de Operación", s((RS.sostenibilidad as Record<string,unknown>)?.esquemaOperacion)),
+            mkKV("Plan de Mantenimiento",s((RS.sostenibilidad as Record<string,unknown>)?.planMantenimiento)),
+            mkKV("Costo Anual O&M",      s((RS.sostenibilidad as Record<string,unknown>)?.costoAnualOM)),
+            mkKV("Fuente de O&M",        s((RS.sostenibilidad as Record<string,unknown>)?.fuenteOM, "Presupuesto General del Municipio")),
+            mkKV("Impacto Ambiental",    s((RS.sostenibilidad as Record<string,unknown>)?.impactoAmbiental)),
+          ],
+        }),
+        H2("Conclusiones de Sostenibilidad"),
+        P(s((RS.sostenibilidad as Record<string,unknown>)?.conclusiones)),
+
+        /* ══════════ FIRMA ══════════════════════════════════════ */
+        new Paragraph({ children: [new PageBreak()] }),
+        new Paragraph({ spacing: { before: 800 },
+          children: [new TextRun({ text: "_".repeat(50), size: 22 })] }),
+        new Paragraph({ spacing: { after: 60 },
+          children: [new TextRun({ text: PROYECTO.representanteLegal, bold: true, size: 22 })] }),
+        new Paragraph({ children: [new TextRun({ text: "Representante Legal", size: 20, color: "5A6B85" })] }),
+        new Paragraph({ children: [new TextRun({ text: PROYECTO.entidadEjecutora, size: 20, color: "5A6B85" })] }),
+        new Paragraph({ spacing: { before: 120 },
+          children: [new TextRun({ text: `NIT: ${PROYECTO.nit}`, size: 20, color: "5A6B85" })] }),
+      ],
+    }],
   });
 
   const blob = await Packer.toBlob(doc);
@@ -668,45 +951,58 @@ async function generarExpedienteZIP() {
     "· Ley 1530/2012 — Sistema General de Regalías",
   ].join("\n"));
 
-  // Generar PDF con contenido IA de todos los módulos
+  // Generar PDF resumen con contenido IA por secciones del Documento Técnico
   if (Object.keys(LINEAMIENTOS).length > 0) {
     const pdfMod = new jsPDF({ format: "letter" });
     const WM = pdfMod.internal.pageSize.getWidth();
     pdfMod.setFillColor(6, 14, 30); pdfMod.rect(0, 0, WM, 35, "F");
     pdfMod.setFillColor(139, 92, 246); pdfMod.rect(0, 35, WM, 1.5, "F");
     pdfMod.setTextColor(240, 244, 255); pdfMod.setFontSize(13); pdfMod.setFont("helvetica", "bold");
-    pdfMod.text("FORMULACIÓN MGA — MÓDULOS GENERADOS CON IA", WM / 2, 15, { align: "center" });
+    pdfMod.text("RESUMEN DOCUMENTO TÉCNICO — GENERADO CON IA", WM / 2, 15, { align: "center" });
     pdfMod.setFontSize(8); pdfMod.setFont("helvetica", "normal"); pdfMod.setTextColor(148, 170, 200);
     pdfMod.text(PROYECTO.nombre, WM / 2, 22, { align: "center" });
     pdfMod.text(`${PROYECTO.municipio}, ${PROYECTO.departamento}`, WM / 2, 28, { align: "center" });
 
+    const AP  = LINEAMIENTOS.arbol_problema          as Record<string, unknown> || {};
+    const OBJ = LINEAMIENTOS.objetivos_alternativa   as Record<string, unknown> || {};
+    const RS  = LINEAMIENTOS.riesgos_sostenibilidad  as Record<string, unknown> || {};
+    const PP  = LINEAMIENTOS.politica_publica        as Record<string, unknown> || {};
+    const MUN = LINEAMIENTOS.municipio               as Record<string, unknown> || {};
+    const D   = LINEAMIENTOS.diagnostico             as Record<string, unknown> || {};
+
+    const safe = (v: unknown) => (v && String(v).trim()) ? String(v).substring(0, 300) : "—";
+
     const modulosInfo: [string, string][] = [
-      ["ENFOQUE ESTRATÉGICO", ""],
-      ["Problema Central", (LINEAMIENTOS.enfoque?.problemaCentral as string) || "—"],
-      ["Objetivo General", (LINEAMIENTOS.enfoque?.objetivoGeneral as string) || "—"],
-      ["Situación Existente", (LINEAMIENTOS.enfoque?.situacionExistente as string) || "—"],
-      ["LOCALIZACIÓN", ""],
-      ["Departamento / Municipio", `${LINEAMIENTOS.localizacion?.departamento || PROYECTO.departamento} / ${LINEAMIENTOS.localizacion?.municipio || PROYECTO.municipio}`],
-      ["Descripción Ubicación", (LINEAMIENTOS.localizacion?.descripcionUbicacion as string) || "—"],
-      ["NORMATIVAS", ""],
-      ["Análisis Normativo", (LINEAMIENTOS.normativas?.analisisNormativo as string) || "—"],
-      ["VIABILIDAD", ""],
-      ["Tipo de Concepto", (LINEAMIENTOS.viabilidad?.tipoConcepto as string) || "—"],
-      ["Organismo Emisor", (LINEAMIENTOS.viabilidad?.organismoEmisor as string) || "—"],
+      ["DIAGNÓSTICO Y JUSTIFICACIÓN", ""],
+      ["Justificación", safe(D.justificacion)],
+      ["MUNICIPIO Y LOCALIZACIÓN", ""],
+      ["Generalidades", safe(MUN.generalidades)],
+      ["Micro Localización", safe(MUN.microLocalizacion)],
+      ["ÁRBOL DE PROBLEMA", ""],
+      ["Problema Central", safe(AP.problemaCentral)],
+      ["Situación Existente", safe(AP.situacionExistente)],
+      ["Magnitud del Problema", safe(AP.magnitudProblema)],
+      ["OBJETIVOS Y ALTERNATIVA", ""],
+      ["Objetivo General", safe(OBJ.objetivoGeneral)],
+      ["Alternativa Seleccionada", safe(OBJ.alternativaSolucion)],
+      ["POLÍTICA PÚBLICA", ""],
+      ["Transformación PND", safe((PP.pnd as Record<string,unknown>)?.transformacion)],
+      ["Programa PDD", safe((PP.pdd as Record<string,unknown>)?.programa)],
+      ["Programa PDM", safe((PP.pdm as Record<string,unknown>)?.programa)],
       ["SOSTENIBILIDAD", ""],
-      ["Esquema de Operación", (LINEAMIENTOS.sostenibilidad?.esquemaOperacion as string) || "—"],
-      ["Costo Anual Operación", (LINEAMIENTOS.sostenibilidad?.costoAnualOperacion as string) || "—"],
-      ["Conclusiones", (LINEAMIENTOS.sostenibilidad?.conclusiones as string) || "—"],
+      ["Esquema de Operación", safe((RS.sostenibilidad as Record<string,unknown>)?.esquemaOperacion)],
+      ["Costo Anual O&M", safe((RS.sostenibilidad as Record<string,unknown>)?.costoAnualOM)],
+      ["Conclusiones", safe((RS.sostenibilidad as Record<string,unknown>)?.conclusiones)],
     ];
 
     autoTable(pdfMod, {
       startY: 42,
-      head: [["CAMPO", "CONTENIDO FORMULADO"]],
+      head: [["SECCIÓN / CAMPO", "CONTENIDO FORMULADO POR IA"]],
       body: modulosInfo,
       headStyles: { fillColor: [6, 14, 30], textColor: 255, fontSize: 8, fontStyle: "bold" },
       bodyStyles: { fontSize: 7.5, textColor: [20, 30, 50] },
       columnStyles: {
-        0: { fontStyle: "bold", cellWidth: 48, fillColor: [245, 248, 255] },
+        0: { fontStyle: "bold", cellWidth: 52, fillColor: [245, 248, 255] },
         1: { cellWidth: "auto" },
       },
       rowPageBreak: "auto",
@@ -714,14 +1010,14 @@ async function generarExpedienteZIP() {
       didParseCell: (data) => {
         if (data.row.cells[1]?.raw === "") {
           Object.values(data.row.cells).forEach(cell => {
-            cell.styles.fillColor = [59, 80, 130];
+            cell.styles.fillColor = [30, 58, 130];
             cell.styles.textColor = [255, 255, 255];
             cell.styles.fontStyle = "bold";
           });
         }
       },
     });
-    carpeta.file("02_Modulos_IA_MGA.pdf", pdfMod.output("arraybuffer"));
+    carpeta.file("02_Resumen_Documento_Tecnico_IA.pdf", pdfMod.output("arraybuffer"));
   }
 
   const content = await zip.generateAsync({ type: "blob" });
