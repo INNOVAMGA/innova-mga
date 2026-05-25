@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
+// Vercel: permite hasta 300s en Pro, 60s en Hobby
+export const maxDuration = 300;
+
 /* ── Supabase server-side (se crea por request con token del usuario) ── */
 function createSupabaseForRequest(token?: string) {
   return createClient(
@@ -93,16 +96,44 @@ export async function POST(req: NextRequest) {
 
       await write({ tipo: "inicio", mensaje: "Iniciando formulación con IA…" });
 
-      // Llamar a Claude y obtener el JSON completo
+      // Llamar a Claude con streaming para actualizar progreso en tiempo real
       await write({ tipo: "progreso", modulo: null, mensaje: "Claude está analizando el proyecto…", pct: 5 });
 
-      const response = await client.messages.create({
+      let rawText = "";
+      let lastPct = 5;
+      let lastUpdate = Date.now();
+
+      const claudeStream = client.messages.stream({
         model: "claude-sonnet-4-5",
         max_tokens: 16000,
         messages: [{ role: "user", content: prompt }],
       });
 
-      const rawText = response.content[0].type === "text" ? response.content[0].text : "";
+      for await (const chunk of claudeStream) {
+        if (
+          chunk.type === "content_block_delta" &&
+          chunk.delta.type === "text_delta"
+        ) {
+          rawText += chunk.delta.text;
+
+          // Enviar actualización de progreso cada 1.5s mientras Claude genera
+          const now = Date.now();
+          if (now - lastUpdate > 1500) {
+            // Estimar progreso: el JSON completo suele ser ~12000 chars
+            const estimado = Math.min(55, 5 + Math.round((rawText.length / 14000) * 50));
+            if (estimado > lastPct) {
+              lastPct = estimado;
+              await write({
+                tipo: "progreso",
+                modulo: null,
+                mensaje: `Claude está generando los módulos MGA… (${rawText.length} caracteres)`,
+                pct: estimado,
+              });
+              lastUpdate = now;
+            }
+          }
+        }
+      }
 
       // Extraer el JSON de la respuesta
       const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/) ||
