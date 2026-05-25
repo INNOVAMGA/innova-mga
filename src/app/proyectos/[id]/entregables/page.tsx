@@ -676,12 +676,43 @@ async function generarExpedienteZIP() {
 /* ──────────────────────────────────────────────────────────────
    COMPONENTE PRINCIPAL
 ────────────────────────────────────────────────────────────── */
+/* ── Tipo para log de formulación IA ────────────────────────── */
+interface LogIA {
+  tipo: "inicio" | "progreso" | "modulo" | "completado" | "error";
+  mensaje: string;
+  modulo?: string;
+  pct?: number;
+  avance?: number;
+  modCompletados?: number;
+  totalMods?: number;
+}
+
+const LABEL_MOD: Record<string, string> = {
+  enfoque: "Enfoque estratégico",
+  localizacion: "Localización",
+  disenos: "Diseños técnicos",
+  presupuesto: "Presupuesto",
+  pdn: "PDN / PDD / PDM",
+  documentos: "Documentos",
+  normativas: "Normativas técnicas",
+  viabilidad: "Viabilidad sectorial",
+  sostenibilidad: "Sostenibilidad",
+};
+
 export default function EntregablesPage() {
   const params = useParams();
   const proyectoId = params?.id as string;
   const [estados, setEstados] = useState<Record<string, EstadoDoc>>({});
   const [generandoZip, setGenerandoZip] = useState(false);
   const [cargando, setCargando] = useState(true);
+
+  /* ── Estado IA ─────────────────────────────────────────────── */
+  const [generandoIA, setGenerandoIA] = useState(false);
+  const [logIA, setLogIA] = useState<LogIA[]>([]);
+  const [pctIA, setPctIA] = useState(0);
+  const [moduloActual, setModuloActual] = useState<string | null>(null);
+  const [iaCompletado, setIaCompletado] = useState(false);
+  const [iaError, setIaError] = useState("");
 
   useEffect(() => {
     if (!proyectoId) return;
@@ -751,6 +782,68 @@ export default function EntregablesPage() {
       console.error(err);
       setEst(key, "disponible");
       alert("Error al generar el documento. Intente nuevamente.");
+    }
+  };
+
+  /* ── Formulación con IA ─────────────────────────────────────── */
+  const handleGenerarIA = async () => {
+    setGenerandoIA(true);
+    setLogIA([]);
+    setPctIA(0);
+    setModuloActual(null);
+    setIaCompletado(false);
+    setIaError("");
+
+    try {
+      const res = await fetch("/api/generar-proyecto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proyectoId }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        setIaError(err.error ?? "Error al conectar con la IA");
+        setGenerandoIA(false);
+        return;
+      }
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event: LogIA = JSON.parse(line.slice(6));
+            setLogIA(prev => [...prev, event]);
+
+            if (event.pct !== undefined) setPctIA(event.pct);
+            if (event.modulo) setModuloActual(event.modulo);
+            if (event.tipo === "completado") {
+              setPctIA(100);
+              setIaCompletado(true);
+              setModuloActual(null);
+              // Recargar página para ver el avance actualizado
+              setTimeout(() => window.location.reload(), 2000);
+            }
+            if (event.tipo === "error") {
+              setIaError(event.mensaje);
+            }
+          } catch { /* ignorar líneas mal formadas */ }
+        }
+      }
+    } catch (err) {
+      setIaError(err instanceof Error ? err.message : "Error de conexión");
+    } finally {
+      setGenerandoIA(false);
     }
   };
 
@@ -843,6 +936,228 @@ export default function EntregablesPage() {
             <p style={{ fontSize: "0.67rem", color: "var(--text-muted)" }}>
               BPIN: {PROYECTO.bpin} · {PROYECTO.municipio}, {PROYECTO.departamento} · {PROYECTO.presupuesto}
             </p>
+          </div>
+
+          {/* ══════════════════════════════════════════════════
+              BOTÓN GENERAR PROYECTO CON IA
+          ══════════════════════════════════════════════════ */}
+          <div style={{
+            marginBottom: "1.75rem",
+            borderRadius: "var(--radius-md)",
+            border: generandoIA
+              ? "1.5px solid rgba(139,92,246,0.5)"
+              : iaCompletado
+                ? "1.5px solid rgba(34,197,94,0.4)"
+                : "1.5px solid rgba(139,92,246,0.3)",
+            background: generandoIA
+              ? "linear-gradient(135deg, rgba(139,92,246,0.07), rgba(59,130,246,0.05))"
+              : iaCompletado
+                ? "rgba(34,197,94,0.05)"
+                : "linear-gradient(135deg, rgba(139,92,246,0.04), rgba(59,130,246,0.03))",
+            overflow: "hidden",
+            transition: "all 0.3s",
+          }}>
+
+            {/* Header del panel */}
+            <div style={{ padding: "1.25rem 1.4rem", display: "flex", alignItems: "center", gap: "1rem" }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 12, flexShrink: 0,
+                background: "linear-gradient(135deg, rgba(139,92,246,0.2), rgba(59,130,246,0.15))",
+                border: "1px solid rgba(139,92,246,0.35)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "1.5rem",
+              }}>🤖</div>
+
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: "0.9rem", fontWeight: 700, color: "#ffffff", marginBottom: "0.2rem" }}>
+                  Formular Proyecto con Inteligencia Artificial
+                </p>
+                <p style={{ fontSize: "0.7rem", color: "rgba(168,189,216,0.7)", lineHeight: 1.4 }}>
+                  Claude analizará los datos del proyecto y generará automáticamente todos los módulos MGA:
+                  enfoque, localización, presupuesto, articulación con PDN/PDD/PDM, normativas, viabilidad y sostenibilidad.
+                </p>
+              </div>
+
+              {!generandoIA && !iaCompletado && (
+                <button
+                  onClick={handleGenerarIA}
+                  style={{
+                    flexShrink: 0,
+                    padding: "0.75rem 1.5rem",
+                    background: "linear-gradient(135deg, #7C3AED, #3B82F6)",
+                    border: "none",
+                    borderRadius: "var(--radius-sm)",
+                    color: "#ffffff",
+                    fontSize: "0.82rem",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: "0.5rem",
+                    transition: "opacity 0.15s",
+                    letterSpacing: "0.02em",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = "0.85")}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = "1")}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+                  </svg>
+                  Generar Proyecto
+                </button>
+              )}
+
+              {iaCompletado && (
+                <div style={{
+                  flexShrink: 0, display: "flex", alignItems: "center", gap: "0.5rem",
+                  padding: "0.6rem 1rem",
+                  background: "rgba(34,197,94,0.12)",
+                  border: "1px solid rgba(34,197,94,0.35)",
+                  borderRadius: "var(--radius-sm)",
+                  color: "#4ADE80", fontSize: "0.8rem", fontWeight: 700,
+                }}>
+                  ✓ Formulación completa
+                </div>
+              )}
+            </div>
+
+            {/* Barra de progreso activa */}
+            {generandoIA && (
+              <div style={{ padding: "0 1.4rem 1.2rem" }}>
+                {/* Barra */}
+                <div style={{
+                  height: 6, background: "rgba(255,255,255,0.08)",
+                  borderRadius: 3, marginBottom: "0.75rem", overflow: "hidden",
+                }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${pctIA}%`,
+                    background: "linear-gradient(90deg, #7C3AED, #3B82F6)",
+                    borderRadius: 3,
+                    transition: "width 0.5s ease",
+                  }} />
+                </div>
+
+                {/* Módulo actual */}
+                {moduloActual && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.6rem" }}>
+                    <span style={{
+                      width: 12, height: 12, borderRadius: "50%",
+                      border: "2px solid rgba(139,92,246,0.5)",
+                      borderTopColor: "#7C3AED",
+                      animation: "spin 0.65s linear infinite",
+                      display: "inline-block", flexShrink: 0,
+                    }} />
+                    <span style={{ fontSize: "0.72rem", color: "#A78BFA", fontWeight: 600 }}>
+                      Generando: {LABEL_MOD[moduloActual] ?? moduloActual}
+                    </span>
+                    <span style={{ fontSize: "0.65rem", color: "rgba(168,189,216,0.5)", marginLeft: "auto" }}>
+                      {pctIA}%
+                    </span>
+                  </div>
+                )}
+
+                {/* Log de pasos */}
+                <div style={{
+                  maxHeight: 120, overflowY: "auto",
+                  display: "flex", flexDirection: "column", gap: "0.25rem",
+                }}>
+                  {logIA.slice(-6).map((l, i) => (
+                    <div key={i} style={{
+                      fontSize: "0.63rem",
+                      color: l.tipo === "error" ? "#F87171"
+                        : l.tipo === "completado" ? "#4ADE80"
+                        : l.tipo === "modulo" ? "#A78BFA"
+                        : "rgba(168,189,216,0.55)",
+                      display: "flex", alignItems: "center", gap: "0.4rem",
+                    }}>
+                      <span style={{ flexShrink: 0 }}>
+                        {l.tipo === "error" ? "✗" : l.tipo === "completado" ? "✓" : l.tipo === "modulo" ? "→" : "·"}
+                      </span>
+                      {l.mensaje}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Spinner principal */}
+                <div style={{
+                  marginTop: "0.75rem",
+                  display: "flex", alignItems: "center", gap: "0.6rem",
+                  padding: "0.6rem 0.8rem",
+                  background: "rgba(139,92,246,0.08)",
+                  borderRadius: "var(--radius-sm)",
+                  border: "1px solid rgba(139,92,246,0.2)",
+                }}>
+                  <span style={{
+                    width: 16, height: 16, borderRadius: "50%",
+                    border: "2px solid rgba(139,92,246,0.3)",
+                    borderTopColor: "#7C3AED",
+                    animation: "spin 0.65s linear infinite",
+                    display: "inline-block", flexShrink: 0,
+                  }} />
+                  <span style={{ fontSize: "0.7rem", color: "#A78BFA", fontWeight: 600 }}>
+                    Claude está formulando el proyecto… Este proceso puede tomar entre 30 y 90 segundos.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Resultado completado */}
+            {iaCompletado && logIA.find(l => l.tipo === "completado") && (
+              <div style={{ padding: "0 1.4rem 1.2rem" }}>
+                <div style={{
+                  padding: "0.9rem 1rem",
+                  background: "rgba(34,197,94,0.06)",
+                  border: "1px solid rgba(34,197,94,0.25)",
+                  borderRadius: "var(--radius-sm)",
+                }}>
+                  {(() => {
+                    const ev = logIA.find(l => l.tipo === "completado")!;
+                    return (
+                      <div>
+                        <p style={{ fontSize: "0.78rem", fontWeight: 700, color: "#4ADE80", marginBottom: "0.3rem" }}>
+                          ✓ {ev.mensaje}
+                        </p>
+                        <p style={{ fontSize: "0.68rem", color: "rgba(168,189,216,0.65)" }}>
+                          Avance de formulación actualizado al {ev.avance}%. Recargando la página…
+                        </p>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Error */}
+            {iaError && (
+              <div style={{ padding: "0 1.4rem 1.2rem" }}>
+                <div style={{
+                  padding: "0.9rem 1rem",
+                  background: "rgba(239,68,68,0.06)",
+                  border: "1px solid rgba(239,68,68,0.3)",
+                  borderRadius: "var(--radius-sm)",
+                }}>
+                  <p style={{ fontSize: "0.75rem", color: "#F87171", fontWeight: 600, marginBottom: "0.3rem" }}>
+                    ✗ Error en la formulación
+                  </p>
+                  <p style={{ fontSize: "0.68rem", color: "rgba(168,189,216,0.6)" }}>{iaError}</p>
+                  {iaError.includes("ANTHROPIC_API_KEY") && (
+                    <p style={{ fontSize: "0.67rem", color: "#FBBF24", marginTop: "0.5rem" }}>
+                      💡 Agrega tu clave en el archivo <code style={{ background: "rgba(255,255,255,0.1)", padding: "0 4px", borderRadius: 3 }}>.env.local</code> con la variable <code style={{ background: "rgba(255,255,255,0.1)", padding: "0 4px", borderRadius: 3 }}>ANTHROPIC_API_KEY=tu-clave</code>
+                    </p>
+                  )}
+                  <button
+                    onClick={() => { setIaError(""); setIaCompletado(false); }}
+                    style={{
+                      marginTop: "0.6rem", padding: "0.35rem 0.8rem",
+                      background: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)",
+                      borderRadius: "var(--radius-sm)", color: "#F87171",
+                      fontSize: "0.68rem", cursor: "pointer",
+                    }}
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Entregables por categoría */}
