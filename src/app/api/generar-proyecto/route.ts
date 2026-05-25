@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
-/* ── Supabase server-side (service role) ───────────────────── */
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+/* ── Supabase server-side (se crea por request con token del usuario) ── */
+function createSupabaseForRequest(token?: string) {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    token
+      ? { global: { headers: { Authorization: `Bearer ${token}` } } }
+      : undefined
+  );
+}
 
 /* ── Definición de módulos a generar ───────────────────────── */
 const MODULOS = [
@@ -42,6 +47,11 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   }
+
+  // Extraer token del header Authorization
+  const authHeader = req.headers.get("Authorization");
+  const token = authHeader?.replace("Bearer ", "") || undefined;
+  const supabase = createSupabaseForRequest(token);
 
   /* ── Leer datos del proyecto ──────────────────────────────── */
   const { data: proyecto, error: ep } = await supabase
