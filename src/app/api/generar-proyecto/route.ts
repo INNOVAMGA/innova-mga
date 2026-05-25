@@ -78,9 +78,6 @@ export async function POST(req: NextRequest) {
     datosExistentes[l.modulo] = l.datos;
   });
 
-  /* ── Construir prompt maestro ─────────────────────────────── */
-  const prompt = buildPrompt(proyecto, datosExistentes);
-
   /* ── SSE Stream ───────────────────────────────────────────── */
   const encoder = new TextEncoder();
   const stream = new TransformStream();
@@ -89,98 +86,100 @@ export async function POST(req: NextRequest) {
   const write = (data: object) =>
     writer.write(encoder.encode(sseEvent(data)));
 
+  // Batches de 3 módulos para no superar el límite de tokens
+  const BATCHES: Modulo[][] = [
+    ["enfoque", "localizacion", "disenos"],
+    ["presupuesto", "pdn", "normativas"],
+    ["viabilidad", "sostenibilidad", "documentos"],
+  ];
+
   // Ejecutar en background
   (async () => {
     try {
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
       await write({ tipo: "inicio", mensaje: "Iniciando formulación con IA…" });
 
-      // Llamar a Claude con streaming para actualizar progreso en tiempo real
-      await write({ tipo: "progreso", modulo: null, mensaje: "Claude está analizando el proyecto…", pct: 5 });
+      // Procesar cada batch secuencialmente
+      for (let b = 0; b < BATCHES.length; b++) {
+        const batch = BATCHES[b];
+        const pctBase = 5 + b * 28; // 5 → 33 → 61
 
-      let rawText = "";
-      let lastPct = 5;
-      let lastUpdate = Date.now();
+        await write({
+          tipo: "progreso", modulo: null,
+          mensaje: `Generando módulos ${b + 1}/3: ${batch.map(m => LABEL_MODULO[m]).join(", ")}…`,
+          pct: pctBase,
+        });
 
-      const claudeStream = client.messages.stream({
-        model: "claude-sonnet-4-5",
-        max_tokens: 16000,
-        messages: [{ role: "user", content: prompt }],
-      });
+        // Llamar a Claude con streaming para este batch
+        let rawText = "";
+        let lastUpdate = Date.now();
+        const prompt = buildPromptForBatch(proyecto, datosExistentes, batch);
 
-      for await (const chunk of claudeStream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
-          rawText += chunk.delta.text;
+        const claudeStream = client.messages.stream({
+          model: "claude-sonnet-4-5",
+          max_tokens: 8000,
+          messages: [{ role: "user", content: prompt }],
+        });
 
-          // Enviar actualización de progreso cada 1.5s mientras Claude genera
-          const now = Date.now();
-          if (now - lastUpdate > 1500) {
-            // Estimar progreso: el JSON completo suele ser ~12000 chars
-            const estimado = Math.min(55, 5 + Math.round((rawText.length / 14000) * 50));
-            if (estimado > lastPct) {
-              lastPct = estimado;
+        for await (const chunk of claudeStream) {
+          if (
+            chunk.type === "content_block_delta" &&
+            chunk.delta.type === "text_delta"
+          ) {
+            rawText += chunk.delta.text;
+            const now = Date.now();
+            if (now - lastUpdate > 1500) {
+              const pct = Math.min(pctBase + 22, pctBase + Math.round((rawText.length / 5000) * 22));
               await write({
-                tipo: "progreso",
-                modulo: null,
-                mensaje: `Claude está generando los módulos MGA… (${rawText.length} caracteres)`,
-                pct: estimado,
+                tipo: "progreso", modulo: null,
+                mensaje: `Claude generando batch ${b + 1}/3… (${rawText.length} chars)`,
+                pct,
               });
               lastUpdate = now;
             }
           }
         }
+
+        // Parsear JSON de la respuesta
+        const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/) ||
+                          rawText.match(/\{[\s\S]*\}/);
+        const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : rawText;
+
+        let batchData: Record<string, unknown>;
+        try {
+          batchData = JSON.parse(jsonStr);
+        } catch {
+          const cleaned = jsonStr.replace(/,\s*([\]}])/g, "$1");
+          try {
+            batchData = JSON.parse(cleaned);
+          } catch {
+            await write({ tipo: "progreso", modulo: null, mensaje: `Batch ${b + 1} con JSON parcial, continuando…`, pct: pctBase + 23 });
+            batchData = {};
+          }
+        }
+
+        // Guardar módulos del batch en Supabase
+        for (const modulo of batch) {
+          const datos = batchData[modulo];
+          if (!datos) continue;
+
+          await write({
+            tipo: "modulo", modulo,
+            mensaje: `Guardando: ${LABEL_MODULO[modulo]}`,
+            pct: pctBase + 24,
+          });
+
+          const estado = calcularEstado(modulo, datos as Record<string, unknown>);
+          await supabase.from("lineamientos_estado").upsert(
+            { proyecto_id: proyectoId, modulo, datos: datos as Record<string, unknown>, estado },
+            { onConflict: "proyecto_id,modulo" }
+          );
+        }
+
+        await write({ tipo: "progreso", modulo: null, mensaje: `Batch ${b + 1}/3 completado ✓`, pct: pctBase + 27 });
       }
 
-      // Extraer el JSON de la respuesta
-      const jsonMatch = rawText.match(/```json\s*([\s\S]*?)\s*```/) ||
-                        rawText.match(/\{[\s\S]*\}/);
-      const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : rawText;
-
-      let modulosGenerados: Record<string, unknown>;
-      try {
-        modulosGenerados = JSON.parse(jsonStr);
-      } catch {
-        // Intentar limpiar el JSON
-        const cleaned = jsonStr.replace(/,\s*}/g, "}").replace(/,\s*]/g, "]");
-        modulosGenerados = JSON.parse(cleaned);
-      }
-
-      await write({ tipo: "progreso", modulo: null, mensaje: "Guardando módulos en la base de datos…", pct: 60 });
-
-      // Guardar cada módulo
-      let completados = 0;
-      for (const modulo of MODULOS) {
-        const datos = modulosGenerados[modulo];
-        if (!datos) continue;
-
-        await write({
-          tipo: "modulo",
-          modulo,
-          mensaje: `Guardando módulo: ${LABEL_MODULO[modulo]}`,
-          pct: 60 + Math.round((completados / MODULOS.length) * 35),
-        });
-
-        // Determinar estado
-        const estado = calcularEstado(modulo, datos as Record<string, unknown>);
-
-        await supabase.from("lineamientos_estado").upsert(
-          {
-            proyecto_id: proyectoId,
-            modulo,
-            datos: datos as Record<string, unknown>,
-            estado,
-          },
-          { onConflict: "proyecto_id,modulo" }
-        );
-
-        completados++;
-      }
-
-      // Calcular avance
+      // Calcular avance final
       const { data: lins } = await supabase
         .from("lineamientos_estado")
         .select("estado")
@@ -258,7 +257,6 @@ function calcularEstado(modulo: Modulo, datos: Record<string, unknown>): string 
       return (String(datos.pddEje ?? "").length > 0 || String(datos.pdmEje ?? "").length > 0) &&
         ods.length >= 1 ? "completado" : "parcial";
     }
-    // Para el resto: si hay datos relevantes → parcial, si hay bastante → completado
     const vals = Object.values(datos).filter(v =>
       v !== "" && v !== null && v !== undefined &&
       !(Array.isArray(v) && v.length === 0)
@@ -269,193 +267,181 @@ function calcularEstado(modulo: Modulo, datos: Record<string, unknown>): string 
   }
 }
 
-/* ── Prompt maestro ─────────────────────────────────────────── */
-function buildPrompt(proyecto: Record<string, unknown>, existentes: Record<string, unknown>): string {
+/* ── Prompt por batch (3 módulos por llamada) ───────────────── */
+function buildPromptForBatch(
+  proyecto: Record<string, unknown>,
+  existentes: Record<string, unknown>,
+  modulos: Modulo[]
+): string {
+  void existentes; // reservado para contexto futuro
   const presupuestoFmt = proyecto.presupuesto_total
     ? `$${Number(proyecto.presupuesto_total).toLocaleString("es-CO")}`
     : "No especificado";
 
-  return `Eres un experto en formulación de proyectos de inversión pública en Colombia bajo la metodología MGA (Metodología General Ajustada) del DNP, para presentación ante el OCAD-SGR bajo el Acuerdo 012/2024 y Acuerdo 015/2025.
-
-DATOS DEL PROYECTO:
-- Nombre: ${proyecto.nombre}
-- Objetivo general: ${proyecto.objetivo ?? "No especificado"}
-- Sector: ${proyecto.sector ?? "No especificado"}
-- Departamento: ${proyecto.departamento ?? "No especificado"}
-- Municipio: ${proyecto.municipio ?? "No especificado"}
-- Localización detalle: ${proyecto.localizacion_detalle ?? "No especificado"}
-- Presupuesto total: ${presupuestoFmt}
-- Duración: ${proyecto.mes_ejecucion ?? 12} meses
-- Población beneficiada: ${proyecto.poblacion_beneficiada ?? 0} personas
-- Entidad ejecutora: ${proyecto.entidad_ejecutora ?? "No especificado"}
-- Representante legal: ${proyecto.representante_legal ?? "No especificado"}
-- Producto MGA: ${proyecto.nombre_producto ?? "No especificado"}
-- Indicador: ${proyecto.nombre_indicador ?? "No especificado"}
-- Meta física: ${proyecto.meta_producto ?? 1}
-- Programa: ${proyecto.programa ?? "No especificado"}
-
-INSTRUCCIÓN: Formula COMPLETAMENTE todos los módulos del proyecto de inversión pública. Usa lenguaje técnico-profesional propio de la MGA colombiana. Responde ÚNICAMENTE con un objeto JSON válido (sin texto antes ni después, sin markdown excepto el bloque de código) con esta estructura exacta:
-
-\`\`\`json
-{
-  "enfoque": {
-    "situacionExistente": "[Descripción técnica de la situación actual problemática, mín. 80 palabras]",
-    "magnitudProblema": "[Datos cuantitativos del problema: cifras, porcentajes, indicadores]",
-    "indicadoresReferencia": "[Indicadores oficiales DANE, DNP u otros que sustentan el diagnóstico]",
-    "fuentesDiagnostico": "[Fuentes: DANE, DNP, Ministerios, PDD, PDM, etc.]",
-    "justificacion": "[Por qué es necesaria la intervención, mín. 60 palabras]",
-    "antecInternacional": "[Referentes internacionales o políticas globales relacionadas]",
-    "antecNacional": "[PND, políticas nacionales, metas CONPES relacionadas]",
-    "antecDepartamental": "[Plan de Desarrollo Departamental vigente, programas relacionados]",
-    "antecMunicipal": "[Plan de Desarrollo Municipal vigente, programas relacionados]",
-    "problemaCentral": "[Problema central en una oración clara y específica]",
-    "objetivoGeneral": "[Objetivo general como solución al problema central, verbo en infinitivo]",
-    "causasDirectas": [
-      {"id": 1, "texto": "[Primera causa directa del problema]"},
-      {"id": 2, "texto": "[Segunda causa directa del problema]"},
-      {"id": 3, "texto": "[Tercera causa directa del problema]"}
-    ],
-    "causasIndirectas": [
-      {"id": 1, "texto": "[Primera causa indirecta]"},
-      {"id": 2, "texto": "[Segunda causa indirecta]"}
-    ],
-    "efectosDirectos": [
-      {"id": 1, "texto": "[Primer efecto directo del problema]"},
-      {"id": 2, "texto": "[Segundo efecto directo del problema]"}
-    ],
-    "efectosIndirectos": [
-      {"id": 1, "texto": "[Efecto indirecto general sobre la comunidad]"}
-    ]
-  },
-  "localizacion": {
+  const schemas: Record<Modulo, string> = {
+    enfoque: `"enfoque": {
+    "situacionExistente": "[Situación actual problemática, máx. 60 palabras]",
+    "magnitudProblema": "[Datos cuantitativos del problema]",
+    "indicadoresReferencia": "[Indicadores DANE, DNP u otros]",
+    "fuentesDiagnostico": "[Fuentes: DANE, DNP, Ministerios]",
+    "justificacion": "[Por qué es necesaria la intervención, máx. 50 palabras]",
+    "antecInternacional": "[Referentes internacionales]",
+    "antecNacional": "[PND, políticas nacionales]",
+    "antecDepartamental": "[Plan de Desarrollo Departamental]",
+    "antecMunicipal": "[Plan de Desarrollo Municipal]",
+    "problemaCentral": "[Problema central en una oración]",
+    "objetivoGeneral": "[Objetivo general, verbo en infinitivo]",
+    "causasDirectas": [{"id":1,"texto":"[Causa directa 1]"},{"id":2,"texto":"[Causa directa 2]"},{"id":3,"texto":"[Causa directa 3]"}],
+    "causasIndirectas": [{"id":1,"texto":"[Causa indirecta 1]"},{"id":2,"texto":"[Causa indirecta 2]"}],
+    "efectosDirectos": [{"id":1,"texto":"[Efecto directo 1]"},{"id":2,"texto":"[Efecto directo 2]"}],
+    "efectosIndirectos": [{"id":1,"texto":"[Efecto indirecto 1]"}]
+  }`,
+    localizacion: `"localizacion": {
     "departamento": "${proyecto.departamento ?? ""}",
     "municipio": "${proyecto.municipio ?? ""}",
     "zona": "Urbano",
-    "descripcionUbicacion": "[Descripción geográfica del municipio y su contexto regional]",
-    "descripcionLugar": "[Descripción específica del lugar de intervención]",
-    "coordenadasTexto": "[Coordenadas aproximadas del municipio en formato lat,lon]",
-    "latitud": "",
-    "longitud": "",
-    "altitud": "",
-    "areaMunicipio": "[Área aproximada del municipio en km²]",
-    "poblacionMunicipio": "[Población total del municipio según DANE]",
-    "contextoRegional": "[Relación del municipio con la región y conectividad]",
+    "descripcionUbicacion": "[Descripción geográfica del municipio]",
+    "descripcionLugar": "[Descripción del lugar de intervención]",
+    "coordenadasTexto": "[Lat,Lon aproximadas]",
+    "latitud": "", "longitud": "", "altitud": "",
+    "areaMunicipio": "[Área en km²]",
+    "poblacionMunicipio": "[Población DANE]",
+    "contextoRegional": "[Contexto regional]",
     "puntosAdicionales": []
-  },
-  "disenos": {
-    "descripcionGeneral": "[Descripción técnica de los diseños requeridos para el proyecto]",
+  }`,
+    disenos: `"disenos": {
+    "descripcionGeneral": "[Descripción técnica de los diseños requeridos]",
     "alternativaSeleccionada": "[Alternativa técnica elegida y justificación]",
-    "especificacionesTecnicas": "[Especificaciones técnicas principales de la intervención]",
+    "especificacionesTecnicas": "[Especificaciones técnicas principales]",
     "documentos": [
-      {"id": "1", "tipo": "Estudio de prefactibilidad", "titulo": "Estudio de prefactibilidad técnica", "descripcion": "Análisis de viabilidad técnica inicial", "estado": "Pendiente", "fechaRevision": ""},
-      {"id": "2", "tipo": "Diseño conceptual", "titulo": "Diseño conceptual del proyecto", "descripcion": "Diseño conceptual de la intervención", "estado": "Pendiente", "fechaRevision": ""}
+      {"id":"1","tipo":"Estudio de prefactibilidad","titulo":"Estudio de prefactibilidad técnica","descripcion":"Análisis de viabilidad técnica","estado":"Pendiente","fechaRevision":""},
+      {"id":"2","tipo":"Diseño conceptual","titulo":"Diseño conceptual del proyecto","descripcion":"Diseño conceptual de la intervención","estado":"Pendiente","fechaRevision":""}
     ],
     "alternativas": [
-      {"id": "1", "nombre": "Alternativa 1 - Construcción nueva", "descripcion": "[Descripción de alternativa principal]", "costo": "", "ventajas": "[Ventajas de esta alternativa]", "desventajas": "[Limitaciones]", "seleccionada": true},
-      {"id": "2", "nombre": "Alternativa 2 - Adecuación existente", "descripcion": "[Descripción de alternativa 2]", "costo": "", "ventajas": "[Ventajas]", "desventajas": "[Limitaciones]", "seleccionada": false}
+      {"id":"1","nombre":"Alternativa 1","descripcion":"[Alternativa principal]","costo":"","ventajas":"[Ventajas]","desventajas":"[Limitaciones]","seleccionada":true},
+      {"id":"2","nombre":"Alternativa 2","descripcion":"[Alternativa 2]","costo":"","ventajas":"[Ventajas]","desventajas":"[Limitaciones]","seleccionada":false}
     ]
-  },
-  "presupuesto": {
+  }`,
+    presupuesto: `"presupuesto": {
     "componentes": [
-      {"id": "c1", "numero": 1, "nombre": "COMPONENTE 1 - OBRAS CIVILES", "descripcion": "[Descripción del componente principal]", "objetivo": "[Objetivo del componente]"},
-      {"id": "c2", "numero": 2, "nombre": "COMPONENTE 2 - DOTACIÓN Y EQUIPOS", "descripcion": "[Descripción del componente de dotación]", "objetivo": "[Objetivo]"},
-      {"id": "c3", "numero": 3, "nombre": "COMPONENTE 3 - GESTIÓN DEL PROYECTO", "descripcion": "[Actividades de gestión y supervisión]", "objetivo": "[Objetivo]"}
+      {"id":"c1","numero":1,"nombre":"COMPONENTE 1 - OBRAS CIVILES","descripcion":"[Descripción]","objetivo":"[Objetivo]"},
+      {"id":"c2","numero":2,"nombre":"COMPONENTE 2 - DOTACIÓN","descripcion":"[Descripción]","objetivo":"[Objetivo]"},
+      {"id":"c3","numero":3,"nombre":"COMPONENTE 3 - GESTIÓN","descripcion":"[Gestión y supervisión]","objetivo":"[Objetivo]"}
     ],
     "actividades": [
-      {"id": "a1", "componenteId": "c1", "codigo": "1.1", "descripcion": "[Actividad principal de obras]", "unidad": "Gl", "cantidad": "1", "valorUnitario": "[70% del presupuesto total]"},
-      {"id": "a2", "componenteId": "c2", "codigo": "2.1", "descripcion": "[Actividad de dotación]", "unidad": "Gl", "cantidad": "1", "valorUnitario": "[15% del presupuesto]"},
-      {"id": "a3", "componenteId": "c3", "codigo": "3.1", "descripcion": "Interventoría técnica y administrativa", "unidad": "Mes", "cantidad": "${proyecto.mes_ejecucion ?? 12}", "valorUnitario": "[5% del presupuesto por mes]"}
+      {"id":"a1","componenteId":"c1","codigo":"1.1","descripcion":"[Actividad obras]","unidad":"Gl","cantidad":"1","valorUnitario":"[70% presupuesto total en números]"},
+      {"id":"a2","componenteId":"c2","codigo":"2.1","descripcion":"[Dotación]","unidad":"Gl","cantidad":"1","valorUnitario":"[15% presupuesto en números]"},
+      {"id":"a3","componenteId":"c3","codigo":"3.1","descripcion":"Interventoría técnica","unidad":"Mes","cantidad":"${proyecto.mes_ejecucion ?? 12}","valorUnitario":"[5% presupuesto / meses en números]"}
     ],
     "porcentajeAIU": "15",
     "fuentesFinanciacion": [
-      {"id": "f1", "fuente": "SGR – Fondo Común", "valor": "${proyecto.presupuesto_total ?? 0}", "porcentaje": "100", "vigencia": "${new Date().getFullYear()}"}
+      {"id":"f1","fuente":"SGR – Fondo Común","valor":"${proyecto.presupuesto_total ?? 0}","porcentaje":"100","vigencia":"${new Date().getFullYear()}"}
     ]
-  },
-  "pdn": {
-    "pddNombre": "[Nombre del Plan de Desarrollo Departamental vigente]",
-    "pddEje": "[Eje estratégico del PDD que articula el proyecto]",
-    "pddPrograma": "[Programa del PDD]",
-    "pddSubprograma": "[Subprograma del PDD]",
-    "pddMeta": "[Meta del PDD con la que se articula]",
-    "pddIndicador": "[Indicador del PDD]",
-    "pddJustificacion": "[Justificación de la articulación con el PDD, mín. 40 palabras]",
-    "pdmNombre": "[Nombre del Plan de Desarrollo Municipal vigente]",
-    "pdmEje": "[Eje estratégico del PDM]",
-    "pdmPrograma": "[Programa del PDM]",
-    "pdmSubprograma": "[Subprograma del PDM]",
-    "pdmMeta": "[Meta del PDM]",
-    "pdmIndicador": "[Indicador del PDM]",
-    "pdmJustificacion": "[Justificación de la articulación con el PDM, mín. 40 palabras]",
-    "pndTransformacion": "[Transformación del PND 2022-2026 con la que articula]",
-    "pndPilar": "[Pilar del PND relacionado]",
-    "pndCatalizador": "[Catalizador del PND]",
-    "pndComponente": "[Componente del PND]",
-    "pndJustificacion": "[Articulación con la política nacional, mín. 40 palabras]",
+  }`,
+    pdn: `"pdn": {
+    "pddNombre": "[Plan de Desarrollo Departamental vigente]",
+    "pddEje": "[Eje estratégico PDD]",
+    "pddPrograma": "[Programa PDD]",
+    "pddSubprograma": "[Subprograma PDD]",
+    "pddMeta": "[Meta PDD]",
+    "pddIndicador": "[Indicador PDD]",
+    "pddJustificacion": "[Articulación con PDD, máx. 40 palabras]",
+    "pdmNombre": "[Plan de Desarrollo Municipal vigente]",
+    "pdmEje": "[Eje PDM]",
+    "pdmPrograma": "[Programa PDM]",
+    "pdmSubprograma": "[Subprograma PDM]",
+    "pdmMeta": "[Meta PDM]",
+    "pdmIndicador": "[Indicador PDM]",
+    "pdmJustificacion": "[Articulación con PDM, máx. 40 palabras]",
+    "pndTransformacion": "[Transformación PND 2022-2026]",
+    "pndPilar": "[Pilar PND]",
+    "pndCatalizador": "[Catalizador PND]",
+    "pndComponente": "[Componente PND]",
+    "pndJustificacion": "[Articulación política nacional, máx. 40 palabras]",
     "odsSeleccionados": [3, 11],
-    "justificacionODS": "[Justificación de los ODS seleccionados y cómo el proyecto contribuye a ellos]",
-    "poaiPrograma": "[Programa del POAI]",
+    "justificacionODS": "[Justificación ODS]",
+    "poaiPrograma": "[Programa POAI]",
     "poaiFuente": "SGR",
     "poaiVigencia": "${new Date().getFullYear()}",
-    "poaiObservaciones": "[Observaciones del POAI]"
-  },
-  "normativas": {
+    "poaiObservaciones": ""
+  }`,
+    normativas: `"normativas": {
     "sectorProyecto": "${proyecto.sector ?? ""}",
     "normasSGRSeleccionadas": ["Acuerdo 012/2024", "Acuerdo 015/2025", "Decreto 1082/2015"],
     "normasSectorSeleccionadas": [],
-    "analisisNormativo": "[Análisis detallado de cómo el proyecto cumple con el marco normativo vigente del SGR y del sector. Mínimo 80 palabras describiendo el cumplimiento de cada norma aplicable.]",
-    "certificadosCumplimiento": "[Certificados y permisos requeridos según el sector y tipo de proyecto]",
+    "analisisNormativo": "[Análisis del cumplimiento normativo SGR y sector, máx. 80 palabras]",
+    "certificadosCumplimiento": "[Certificados y permisos requeridos]",
     "normativasCustom": []
-  },
-  "viabilidad": {
+  }`,
+    viabilidad: `"viabilidad": {
     "tipoConcepto": "favorable",
-    "organismoEmisor": "[Entidad sectorial competente según tipo de proyecto]",
+    "organismoEmisor": "[Entidad sectorial competente]",
     "numeroConcepto": "Pendiente de emisión",
-    "fechaConcepto": "",
-    "vigenciaConcepto": "",
-    "condicionamientos": "",
+    "fechaConcepto": "", "vigenciaConcepto": "", "condicionamientos": "",
     "observacionesTecnicas": "[Observaciones técnicas previas al concepto formal]",
     "nombreResponsable": "${proyecto.representante_legal ?? ""}",
     "cargoResponsable": "Representante Legal",
-    "descripcionProyectoConcepto": "[Descripción del proyecto tal como se presentará para el concepto de viabilidad]",
+    "descripcionProyectoConcepto": "[Descripción del proyecto para el concepto de viabilidad]",
     "documentosSoporte": []
-  },
-  "sostenibilidad": {
+  }`,
+    sostenibilidad: `"sostenibilidad": {
     "entidadOperadora": "${proyecto.entidad_ejecutora ?? ""}",
     "tipoEntidad": "Entidad Territorial",
-    "esquemaOperacion": "[Descripción del esquema de operación y mantenimiento post-inversión]",
-    "capacidadInstitucional": "[Descripción de la capacidad técnica y administrativa de la entidad]",
+    "esquemaOperacion": "[Esquema de operación y mantenimiento post-inversión]",
+    "capacidadInstitucional": "[Capacidad técnica y administrativa]",
     "compromisoInstitucional": true,
     "vidaUtilInfraestructura": "20",
     "planMantenimiento": "[Plan de mantenimiento preventivo y correctivo]",
     "frecuenciaMantenimiento": "Anual",
-    "costoAnualOperacion": "[Costo estimado de operación anual en pesos]",
+    "costoAnualOperacion": "[Costo estimado de operación anual]",
     "fuentePrincipalOM": "Presupuesto General del Municipio",
-    "fuentesComplementariasOM": "[Fuentes adicionales de financiación para O&M]",
-    "sostenibilidadFinanciera": "[Análisis de sostenibilidad financiera a largo plazo]",
+    "fuentesComplementariasOM": "[Fuentes adicionales de O&M]",
+    "sostenibilidadFinanciera": "[Análisis de sostenibilidad financiera]",
     "impactoAmbiental": "positivo",
-    "medidasMitigacion": "[Medidas de mitigación ambiental durante construcción y operación]",
+    "medidasMitigacion": "[Medidas de mitigación ambiental]",
     "permisoAmbientalRequerido": false,
     "tipoPermisoAmbiental": "",
-    "participacionComunitaria": "[Descripción de la participación de la comunidad en el proyecto]",
-    "beneficiosSociales": "[Beneficios sociales esperados para la comunidad beneficiada]",
-    "enfoqueDiferencial": "[Enfoque diferencial aplicado: género, etnia, discapacidad, ciclo vital]",
+    "participacionComunitaria": "[Participación comunitaria en el proyecto]",
+    "beneficiosSociales": "[Beneficios sociales esperados]",
+    "enfoqueDiferencial": "[Enfoque diferencial: género, etnia, discapacidad]",
     "riesgos": [
-      {"id": 1, "descripcion": "Demoras en proceso de contratación", "probabilidad": "Media", "impacto": "Alto", "mitigacion": "Iniciar proceso contractual con suficiente antelación"},
-      {"id": 2, "descripcion": "Variación de precios de materiales", "probabilidad": "Media", "impacto": "Medio", "mitigacion": "Incluir AIU adecuado y cláusulas de ajuste de precios"},
-      {"id": 3, "descripcion": "Condiciones climáticas adversas", "probabilidad": "Baja", "impacto": "Bajo", "mitigacion": "Programar actividades en épocas de menor precipitación"}
+      {"id":1,"descripcion":"Demoras en contratación","probabilidad":"Media","impacto":"Alto","mitigacion":"Iniciar proceso con suficiente antelación"},
+      {"id":2,"descripcion":"Variación de precios de materiales","probabilidad":"Media","impacto":"Medio","mitigacion":"Incluir AIU adecuado"}
     ],
-    "conclusiones": "[Conclusión integral sobre la sostenibilidad del proyecto, destacando los aspectos que garantizan su operación en el tiempo. Mínimo 60 palabras.]"
-  },
-  "documentos": ${JSON.stringify(buildDocumentosIniciales())}
+    "conclusiones": "[Conclusión sobre sostenibilidad del proyecto, máx. 60 palabras]"
+  }`,
+    documentos: `"documentos": ${JSON.stringify(buildDocumentosIniciales())}`,
+  };
+
+  const schemaSeleccionado = modulos.map(m => schemas[m]).join(",\n  ");
+  const modulosLabel = modulos.map(m => LABEL_MODULO[m]).join(", ");
+
+  return `Eres experto en formulación de proyectos MGA para OCAD-SGR Colombia (Acuerdo 012/2024, 015/2025).
+
+PROYECTO: ${proyecto.nombre}
+- Sector: ${proyecto.sector ?? "No especificado"}
+- Municipio: ${proyecto.municipio}, ${proyecto.departamento}
+- Presupuesto total: ${presupuestoFmt}
+- Duración: ${proyecto.mes_ejecucion ?? 12} meses
+- Beneficiarios: ${proyecto.poblacion_beneficiada ?? 0} personas
+- Objetivo: ${proyecto.objetivo ?? "No especificado"}
+- Entidad: ${proyecto.entidad_ejecutora ?? "No especificado"}
+
+MÓDULOS A GENERAR: ${modulosLabel}
+
+Responde ÚNICAMENTE con un objeto JSON válido con estos módulos (sin texto fuera del JSON, sin explicaciones):
+
+\`\`\`json
+{
+  ${schemaSeleccionado}
 }
 \`\`\`
 
-IMPORTANTE:
-- Usa información técnica real y coherente con el sector "${proyecto.sector ?? "General"}" en Colombia
-- El presupuesto total es ${presupuestoFmt} — los valores de actividades deben sumar aproximadamente ese monto
-- El municipio es ${proyecto.municipio}, ${proyecto.departamento} — contextualiza correctamente
-- Usa terminología MGA oficial del DNP
-- Los textos descriptivos deben tener la profundidad técnica que requiere una presentación al OCAD-SGR
+REGLAS:
+- Usa terminología técnica MGA del DNP
+- Sé conciso pero preciso (los campos con [máx. N palabras] respétalas)
+- El presupuesto total es ${presupuestoFmt} — úsalo como referencia real
+- Municipio: ${proyecto.municipio}, ${proyecto.departamento} — contextualiza correctamente
 - NO incluyas texto fuera del bloque JSON`;
 }
 
